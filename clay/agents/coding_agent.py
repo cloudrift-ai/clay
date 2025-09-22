@@ -74,18 +74,38 @@ If no tools are needed for information-only responses:
 
     def _parse_response(self, response: str) -> AgentResult:
         """Parse LLM response into AgentResult."""
+        # Try to extract JSON from markdown code blocks first
+        if "```json" in response:
+            start = response.find("```json") + 7
+            end = response.find("```", start)
+            if end != -1:
+                json_content = response[start:end].strip()
+                try:
+                    data = json.loads(json_content)
+                    return AgentResult(
+                        status=AgentStatus.COMPLETE,
+                        output=data.get("output", "Task completed"),
+                        tool_calls=data.get("tool_calls", [])
+                    )
+                except json.JSONDecodeError:
+                    pass
+
+        # Try to parse as direct JSON
         try:
             data = json.loads(response)
             return AgentResult(
                 status=AgentStatus.COMPLETE,
-                output=data.get("output"),
+                output=data.get("output", "Task completed"),
                 tool_calls=data.get("tool_calls", [])
             )
         except json.JSONDecodeError:
-            return AgentResult(
-                status=AgentStatus.COMPLETE,
-                output=response
-            )
+            pass
+
+        # Fallback: return response as output
+        return AgentResult(
+            status=AgentStatus.COMPLETE,
+            output=response
+        )
 
     async def _mock_think(self, prompt: str, context: AgentContext) -> AgentResult:
         """Mock implementation when no LLM provider."""

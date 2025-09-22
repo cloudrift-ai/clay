@@ -69,6 +69,23 @@ For information-only tasks:
 
     def _parse_response(self, response: str) -> AgentResult:
         """Parse LLM response with fallback for non-JSON."""
+        # Try to extract JSON from markdown code blocks first
+        if "```json" in response:
+            start = response.find("```json") + 7
+            end = response.find("```", start)
+            if end != -1:
+                json_content = response[start:end].strip()
+                try:
+                    data = json.loads(json_content)
+                    return AgentResult(
+                        status=AgentStatus.COMPLETE,
+                        output=data.get("output", "Task completed"),
+                        tool_calls=data.get("tool_calls", [])
+                    )
+                except json.JSONDecodeError:
+                    pass
+
+        # Try to parse as direct JSON
         try:
             data = json.loads(response)
             return AgentResult(
@@ -77,12 +94,14 @@ For information-only tasks:
                 tool_calls=data.get("tool_calls", [])
             )
         except json.JSONDecodeError:
-            # Fallback: treat as plain text response
-            return AgentResult(
-                status=AgentStatus.COMPLETE,
-                output=response.strip(),
-                tool_calls=[]
-            )
+            pass
+
+        # Fallback: treat as plain text response
+        return AgentResult(
+            status=AgentStatus.COMPLETE,
+            output=response.strip(),
+            tool_calls=[]
+        )
 
     async def _mock_think(self, prompt: str, context: AgentContext) -> AgentResult:
         """Fast mock implementation."""
