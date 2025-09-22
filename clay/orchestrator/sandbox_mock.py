@@ -75,7 +75,7 @@ class MockSandboxManager:
 
         for tool, check_args, category in tool_checks:
             try:
-                result = await self._run_command([tool] + check_args, timeout_s=5)
+                result = await self._run_command([tool] + check_args, timeout_s=5, silent=True)
                 if result.exit_code == 0:
                     stack_info[category].append(tool)
             except Exception:
@@ -95,7 +95,7 @@ class MockSandboxManager:
         return await self._run_command(cmd.split(), cwd=cwd, timeout_s=timeout_s)
 
     async def _run_command(self, cmd: List[str], cwd: Optional[str] = None,
-                          timeout_s: int = 300) -> ExecResult:
+                          timeout_s: int = 300, silent: bool = False) -> ExecResult:
         """Run a command with timeout."""
         start_time = asyncio.get_event_loop().time()
 
@@ -123,7 +123,8 @@ class MockSandboxManager:
             )
 
         except asyncio.TimeoutError:
-            logger.error(f"Command timed out after {timeout_s}s: {' '.join(cmd)}")
+            if not silent:
+                logger.error(f"Command timed out after {timeout_s}s: {' '.join(cmd)}")
             return ExecResult(
                 exit_code=-1,
                 stdout="",
@@ -134,7 +135,8 @@ class MockSandboxManager:
 
         except Exception as e:
             duration = asyncio.get_event_loop().time() - start_time
-            logger.error(f"Command failed: {' '.join(cmd)}: {e}")
+            if not silent:
+                logger.error(f"Command failed: {' '.join(cmd)}: {e}")
             return ExecResult(
                 exit_code=-1,
                 stdout="",

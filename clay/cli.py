@@ -145,8 +145,8 @@ class ClaySession:
         self.conversation.add_user_message(message)
         self.session_manager.add_message(self.session_id, "user", message)
 
-        # Check if this is a complex coding task that should use the orchestrator
-        if self.use_orchestrator and self.clay_orchestrator and self._is_complex_task(message):
+        # Always use orchestrator if available, otherwise fall back to agents
+        if self.use_orchestrator and self.clay_orchestrator:
             return await self._process_with_orchestrator(message)
         else:
             return await self._process_with_agents(message)
@@ -155,12 +155,14 @@ class ClaySession:
         """Determine if this is a complex coding task that benefits from the orchestrator."""
         complex_indicators = [
             "implement", "create", "build", "add", "modify", "refactor",
-            "fix", "debug", "update", "write code", "change", "develop"
+            "fix", "debug", "update", "write code", "change", "develop",
+            "tetris", "game"  # Specific complex examples
         ]
 
         simple_indicators = [
             "read", "show", "find", "search", "grep", "list",
-            "what is", "how many", "explain", "describe"
+            "what is", "how many", "explain", "describe", "analyze",
+            "hello world", "simple"  # Simple examples
         ]
 
         message_lower = message.lower()
@@ -173,17 +175,34 @@ class ClaySession:
         if any(indicator in message_lower for indicator in complex_indicators):
             return True
 
+        # For planning requests, always use orchestrator
+        if "plan" in message_lower and ("step" in message_lower or "break" in message_lower):
+            return True
+
         # Default to agents for ambiguous cases
         return False
 
     async def _process_with_orchestrator(self, message: str) -> str:
         """Process message using the Clay orchestrator."""
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
-            task = progress.add_task("Processing with Clay orchestrator...", total=None)
+        # Check if we're in headless mode (no TTY)
+        import sys
+        show_progress = sys.stdout.isatty()
+
+        if show_progress:
+            progress_context = Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console
+            )
+        else:
+            from contextlib import nullcontext
+            progress_context = nullcontext()
+
+        with progress_context as progress:
+            if show_progress:
+                task = progress.add_task("Processing with Clay orchestrator...", total=None)
+            else:
+                task = None
 
             try:
                 # Extract constraints from message if any
@@ -193,7 +212,8 @@ class ClaySession:
 
                 result = await self.clay_orchestrator.process_task(message, constraints)
 
-                progress.update(task, completed=True)
+                if show_progress:
+                    progress.update(task, completed=True)
 
                 # Format response based on result
                 if result.get("status") == "success":
@@ -201,10 +221,18 @@ class ClaySession:
                 elif result.get("status") == "error":
                     response = f"Error: {result.get('error', 'Unknown error occurred')}"
                 else:
-                    response = f"Task completed with status: {result.get('status', 'unknown')}"
+                    # Check if this was a query-only task
+                    artifacts = result.get('artifacts', {})
+                    if artifacts.get('query_only'):
+                        response = artifacts.get('response', 'Query completed')
+                    elif artifacts.get('final_diff'):
+                        response = "✅ Task completed successfully!"
+                    else:
+                        response = f"Task completed with status: {result.get('status', 'unknown')}"
 
             except Exception as e:
-                progress.update(task, completed=True)
+                if show_progress:
+                    progress.update(task, completed=True)
                 response = f"Orchestrator error: {str(e)}"
 
         self.conversation.add_assistant_message(response)
@@ -349,9 +377,10 @@ def cli(query: Optional[str], print: bool, provider: Optional[str], model: Optio
     if not sys.stdin.isatty():
         piped_input = sys.stdin.read().strip()
 
-    # Setup LLM provider
+    # Setup LLM provider - auto-detect based on available API keys
     llm_provider = None
     if provider:
+        # Explicit provider specified
         try:
             llm_provider = create_llm_provider(provider, api_key, model)
             if verbose:
@@ -359,6 +388,30 @@ def cli(query: Optional[str], print: bool, provider: Optional[str], model: Optio
         except Exception as e:
             console.print(f"[yellow]Warning: {e}[/yellow]")
             console.print("[yellow]Running without LLM provider (mock mode)[/yellow]")
+    else:
+        # Auto-detect provider based on environment variables
+        import os
+
+        providers_to_try = [
+            ('cloudrift', os.getenv('CLOUDRIFT_API_KEY'), None),
+            ('anthropic', os.getenv('ANTHROPIC_API_KEY'), None),
+            ('openai', os.getenv('OPENAI_API_KEY'), None)
+        ]
+
+        for prov_name, prov_key, prov_model in providers_to_try:
+            if prov_key:
+                try:
+                    llm_provider = create_llm_provider(prov_name, prov_key, prov_model or model)
+                    if verbose:
+                        console.print(f"[green]Auto-detected {prov_name} provider[/green]")
+                    break
+                except Exception as e:
+                    if verbose:
+                        console.print(f"[yellow]Failed to use {prov_name}: {e}[/yellow]")
+                    continue
+
+        if not llm_provider and verbose:
+            console.print("[yellow]No API keys found, running in mock mode[/yellow]")
 
     # Setup working directories
     working_dirs = list(add_dir) if add_dir else ["."]
@@ -367,12 +420,12 @@ def cli(query: Optional[str], print: bool, provider: Optional[str], model: Optio
             console.print(f"[red]Error: Directory '{dir_path}' does not exist[/red]")
             sys.exit(1)
 
-    # Create session with configuration
+    # Create session with configuration - always use orchestrator if provider available
     session = ClaySession(
         llm_provider,
         working_dir=working_dirs[0],  # Primary working directory
         fast_mode=fast,
-        use_orchestrator=use_orchestrator
+        use_orchestrator=use_orchestrator and llm_provider is not None
     )
 
     # Configure session with additional options
@@ -442,6 +495,10 @@ async def run_analysis_mode(session: ClaySession, output_format: str):
 async def run_headless_mode(session: ClaySession, query: Optional[str], piped_input: Optional[str], output_format: str):
     """Run in headless mode - process query and exit."""
     import json
+    import logging
+
+    # Set logging to only show errors in headless mode
+    logging.getLogger().setLevel(logging.ERROR)
 
     # Combine query and piped input
     if piped_input and query:

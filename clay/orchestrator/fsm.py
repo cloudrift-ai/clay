@@ -111,7 +111,12 @@ class ControlLoopOrchestrator:
             StateTransition(
                 OrchestratorState.EDIT,
                 OrchestratorState.FORMAT_LINT,
-                condition=lambda ctx: ctx.proposed_diff is not None
+                condition=lambda ctx: ctx.proposed_diff is not None and not ctx.artifacts.get('query_only', False)
+            ),
+            StateTransition(
+                OrchestratorState.EDIT,
+                OrchestratorState.DONE,
+                condition=lambda ctx: ctx.proposed_diff is not None and ctx.artifacts.get('query_only', False)
             ),
             StateTransition(
                 OrchestratorState.FORMAT_LINT,
@@ -301,6 +306,18 @@ class ControlLoopOrchestrator:
         validation = await self.policy.validate_diff(diff)
         if not validation.is_valid:
             raise ValueError(f"Diff violates policy: {validation.reasons}")
+
+        # Check if this is a simple query (no actual diff needed)
+        if (diff.strip() == "" or
+            "no changes needed" in diff.lower() or
+            "no files" in diff.lower() or
+            not diff.startswith("---") or
+            len(diff.split('\n')) < 3):
+            # For simple queries, just mark as complete
+            ctx.proposed_diff = "# No changes needed for query"
+            ctx.artifacts['response'] = diff
+            ctx.artifacts['query_only'] = True
+            return
 
         # Validate diff format
         patch_validation = await self.patch_engine.validate(diff)

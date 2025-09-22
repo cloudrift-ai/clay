@@ -77,23 +77,9 @@ Provide a JSON response with this structure:
             return plan
 
         except Exception as e:
-            logger.error(f"Failed to parse plan from model: {e}")
-            # Return fallback plan
-            return {
-                "steps": [
-                    {
-                        "id": 1,
-                        "description": "Analyze project structure",
-                        "action": "analyze",
-                        "files": [],
-                        "rationale": "Understanding codebase before changes"
-                    }
-                ],
-                "estimated_changes": 10,
-                "risk_level": "low",
-                "dependencies": {"add": [], "remove": []},
-                "test_strategy": "Run existing tests"
-            }
+            logger.debug(f"Failed to parse plan from model: {e}")
+            # Create a simplified plan based on the goal
+            return self._create_fallback_plan(goal, context)
 
     async def propose_patch(self, plan: Dict[str, Any], context: Dict[str, Any],
                           previous_attempts: List[str]) -> str:
@@ -106,7 +92,25 @@ Provide a JSON response with this structure:
         if previous_attempts:
             attempts_str = f"\nPREVIOUS ATTEMPTS:\n{len(previous_attempts)} previous patches were applied"
 
-        patch_prompt = f"""
+        # Check if this is a simple query based on the plan
+        is_query = (plan.get('estimated_changes', 0) == 0 or
+                   any(step.get('action') == 'analyze' for step in plan.get('steps', [])))
+
+        if is_query:
+            patch_prompt = f"""
+Based on this plan, provide a response to the user's query:
+
+PLAN:
+{json.dumps(plan, indent=2)}
+
+CONTEXT:
+{context_str}
+
+The user is asking for information or analysis. Provide a helpful response.
+Do not create any files or diffs - just answer their question.
+"""
+        else:
+            patch_prompt = f"""
 Based on this plan, create a unified diff patch:
 
 PLAN:
@@ -314,3 +318,84 @@ Provide a JSON response with repair suggestions:
                 return False
 
         return True
+
+    def _create_fallback_plan(self, goal: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a fallback plan when JSON parsing fails."""
+        goal_lower = goal.lower()
+
+        # Detect if this is a simple query vs complex task
+        simple_indicators = [
+            "read", "show", "find", "search", "grep", "list",
+            "what is", "how many", "explain", "describe", "analyze"
+        ]
+
+        complex_indicators = [
+            "implement", "create", "build", "add", "modify", "refactor",
+            "fix", "debug", "update", "write", "change", "develop"
+        ]
+
+        is_simple = any(indicator in goal_lower for indicator in simple_indicators)
+        is_complex = any(indicator in goal_lower for indicator in complex_indicators)
+
+        if is_simple and not is_complex:
+            # Simple query - create minimal plan
+            return {
+                "steps": [
+                    {
+                        "id": 1,
+                        "description": f"Respond to query: {goal[:50]}...",
+                        "action": "analyze",
+                        "files": [],
+                        "rationale": "Simple information request"
+                    }
+                ],
+                "estimated_changes": 0,
+                "risk_level": "low",
+                "dependencies": {"add": [], "remove": []},
+                "test_strategy": "No testing needed for query"
+            }
+        else:
+            # Complex task - create structured plan
+            steps = []
+
+            if "file" in goal_lower or "create" in goal_lower:
+                steps.append({
+                    "id": 1,
+                    "description": "Analyze project structure",
+                    "action": "analyze",
+                    "files": [],
+                    "rationale": "Understanding codebase before changes"
+                })
+
+                steps.append({
+                    "id": 2,
+                    "description": "Implement requested changes",
+                    "action": "edit",
+                    "files": ["new_file.py"],  # Generic filename
+                    "rationale": "Create or modify files as requested"
+                })
+
+                if "test" in goal_lower:
+                    steps.append({
+                        "id": 3,
+                        "description": "Add tests for changes",
+                        "action": "test",
+                        "files": ["test_new_file.py"],
+                        "rationale": "Ensure code quality and correctness"
+                    })
+            else:
+                steps.append({
+                    "id": 1,
+                    "description": goal[:100],
+                    "action": "edit",
+                    "files": [],
+                    "rationale": "Complete the requested task"
+                })
+
+            return {
+                "steps": steps,
+                "estimated_changes": 50,
+                "risk_level": "medium" if len(steps) > 1 else "low",
+                "dependencies": {"add": [], "remove": []},
+                "test_strategy": "Manual testing and validation"
+            }
