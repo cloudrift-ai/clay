@@ -18,6 +18,7 @@ from .agents import (
     CodingAgent, ResearchAgent, FastCodingAgent,
     AgentOrchestrator, AgentContext, StreamingAgent, ProgressiveSession
 )
+from .config import get_config
 from .tools import (
     ReadTool, WriteTool, EditTool, GlobTool,
     BashTool, GrepTool, SearchTool,
@@ -346,8 +347,8 @@ class ClaySession:
         return "coding_agent"
 
 
-@click.command()
-@click.argument("query", required=False)
+@click.group(invoke_without_command=True)
+@click.pass_context
 @click.option("--print", "-p", is_flag=True, help="Print response without interactive mode")
 @click.option("--provider", help="LLM provider (openai/anthropic/cloudrift)")
 @click.option("--model", help="Model to use")
@@ -365,50 +366,54 @@ class ClaySession:
 @click.option("--append-system-prompt", help="Append to system prompt")
 @click.option("--use-orchestrator/--no-orchestrator", default=True, help="Use Clay orchestrator for complex tasks")
 @click.option("--analyze-only", is_flag=True, help="Analyze project without making changes")
-def cli(query: Optional[str], print: bool, provider: Optional[str], model: Optional[str],
+@click.argument("query", required=False)
+def cli(ctx: click.Context, print: bool, provider: Optional[str], model: Optional[str],
         api_key: Optional[str], fast: bool, add_dir: tuple, allowed_tools: tuple,
         disallowed_tools: tuple, output_format: str, input_format: str, verbose: bool,
         max_turns: Optional[int], continue_session: bool, resume: Optional[str],
-        append_system_prompt: Optional[str], use_orchestrator: bool, analyze_only: bool):
+        append_system_prompt: Optional[str], use_orchestrator: bool, analyze_only: bool, query: Optional[str]):
     """Clay - Agentic Coding System similar to Claude Code."""
+
+    # If a subcommand was invoked, don't run the main CLI
+    if ctx.invoked_subcommand is not None:
+        return
 
     # Handle piped input
     piped_input = None
     if not sys.stdin.isatty():
         piped_input = sys.stdin.read().strip()
 
-    # Setup LLM provider - auto-detect based on available API keys
+    # Setup LLM provider using configuration system
+    config = get_config()
     llm_provider = None
+
     if provider:
         # Explicit provider specified
+        provider_api_key, provider_model = config.get_provider_credentials(provider)
+        effective_api_key = api_key or provider_api_key
+        effective_model = model or provider_model
+
         try:
-            llm_provider = create_llm_provider(provider, api_key, model)
+            llm_provider = create_llm_provider(provider, effective_api_key, effective_model)
             if verbose:
-                console.print(f"[green]Using {provider} provider with model {model or 'default'}[/green]")
+                console.print(f"[green]Using {provider} provider with model {effective_model or 'default'}[/green]")
         except Exception as e:
             console.print(f"[yellow]Warning: {e}[/yellow]")
             console.print("[yellow]Running without LLM provider (mock mode)[/yellow]")
     else:
-        # Auto-detect provider based on environment variables
-        import os
+        # Auto-detect provider from configuration
+        default_provider = config.get_default_provider()
+        if default_provider:
+            provider_api_key, provider_model = config.get_provider_credentials(default_provider)
+            effective_model = model or provider_model
 
-        providers_to_try = [
-            ('cloudrift', os.getenv('CLOUDRIFT_API_KEY'), None),
-            ('anthropic', os.getenv('ANTHROPIC_API_KEY'), None),
-            ('openai', os.getenv('OPENAI_API_KEY'), None)
-        ]
-
-        for prov_name, prov_key, prov_model in providers_to_try:
-            if prov_key:
-                try:
-                    llm_provider = create_llm_provider(prov_name, prov_key, prov_model or model)
-                    if verbose:
-                        console.print(f"[green]Auto-detected {prov_name} provider[/green]")
-                    break
-                except Exception as e:
-                    if verbose:
-                        console.print(f"[yellow]Failed to use {prov_name}: {e}[/yellow]")
-                    continue
+            try:
+                llm_provider = create_llm_provider(default_provider, provider_api_key, effective_model)
+                if verbose:
+                    console.print(f"[green]Auto-detected {default_provider} provider[/green]")
+            except Exception as e:
+                if verbose:
+                    console.print(f"[yellow]Failed to use {default_provider}: {e}[/yellow]")
 
         if not llm_provider and verbose:
             console.print("[yellow]No API keys found, running in mock mode[/yellow]")
@@ -649,14 +654,72 @@ def show_help():
 main_cli.add_command(cli, name="main")
 
 
+@cli.command()
+@click.option("--global", "global_config", is_flag=True, help="Initialize global config (~/.clay/config.toml)")
+@click.option("--local", "local_config", is_flag=True, help="Initialize local config (.clay.toml)")
+@click.option("--show", is_flag=True, help="Show current configuration")
+def config(global_config: bool, local_config: bool, show: bool):
+    """Manage Clay configuration."""
+    from .config import get_config, ClayConfig
+
+    if show:
+        # Show current configuration
+        config = get_config()
+        console.print("\n[bold]Current Configuration:[/bold]")
+
+        # Show available providers
+        available = config.get_available_providers()
+        if available:
+            console.print("\n[green]Available Providers:[/green]")
+            for name, provider_config in available.items():
+                model = provider_config.get('model', 'default')
+                console.print(f"  • {name} (model: {model})")
+        else:
+            console.print("\n[yellow]No providers configured[/yellow]")
+
+        # Show default provider
+        default = config.get_default_provider()
+        if default:
+            console.print(f"\n[blue]Default Provider:[/blue] {default}")
+
+        # Show config file locations
+        console.print("\n[bold]Config File Locations:[/bold]")
+        global_path = Path.home() / '.clay' / 'config.toml'
+        local_path = Path.cwd() / '.clay.toml'
+
+        console.print(f"  • Global: {global_path} {'✓' if global_path.exists() else '✗'}")
+        console.print(f"  • Local:  {local_path} {'✓' if local_path.exists() else '✗'}")
+
+        return
+
+    if global_config or (not local_config and not global_config):
+        # Initialize global config
+        config_path = Path.home() / '.clay' / 'config.toml'
+        if config_path.exists():
+            console.print(f"[yellow]Global config already exists at {config_path}[/yellow]")
+        else:
+            clay_config = ClayConfig()
+            clay_config.create_default_config(config_path)
+            console.print(f"[green]Created global config at {config_path}[/green]")
+            console.print("\n[bold]Next steps:[/bold]")
+            console.print("1. Edit the config file to add your API keys")
+            console.print("2. Run [cyan]clay config --show[/cyan] to verify configuration")
+
+    if local_config:
+        # Initialize local config
+        config_path = Path.cwd() / '.clay.toml'
+        if config_path.exists():
+            console.print(f"[yellow]Local config already exists at {config_path}[/yellow]")
+        else:
+            clay_config = ClayConfig()
+            clay_config.create_default_config(config_path)
+            console.print(f"[green]Created local config at {config_path}[/green]")
+            console.print("\n[bold]This project-specific config will override global settings[/bold]")
+
+
 def main():
     """Main entry point."""
-    # If no subcommand provided, run the main CLI
-    import sys
-    if len(sys.argv) == 1 or (len(sys.argv) > 1 and not sys.argv[1] in ['update', 'mcp']):
-        cli()
-    else:
-        main_cli()
+    cli()
 
 
 if __name__ == "__main__":
