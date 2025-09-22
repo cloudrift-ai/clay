@@ -26,6 +26,7 @@ from .tools import (
 from .llm import create_llm_provider, get_default_provider
 from .conversation import ConversationManager
 from .session_manager import SessionManager
+from .orchestrator import ClayOrchestrator, PolicyConfig
 
 
 console = Console()
@@ -34,11 +35,17 @@ console = Console()
 class ClaySession:
     """Main session handler for Clay CLI."""
 
-    def __init__(self, llm_provider=None, working_dir: str = ".", fast_mode: bool = False, session_id: Optional[str] = None):
+    def __init__(self, llm_provider=None, working_dir: str = ".", fast_mode: bool = False, session_id: Optional[str] = None,
+                 use_orchestrator: bool = True):
         self.llm_provider = llm_provider or get_default_provider()
         self.working_dir = Path(working_dir).resolve()
         self.fast_mode = fast_mode
-        self.orchestrator = AgentOrchestrator()
+        self.use_orchestrator = use_orchestrator
+
+        # Initialize both orchestrators
+        self.agent_orchestrator = AgentOrchestrator()
+        self.clay_orchestrator = None
+
         self.conversation = ConversationManager()
         self.session_manager = SessionManager()
 
@@ -53,6 +60,15 @@ class ClaySession:
         self.append_system_prompt = None
 
         self.setup_agents()
+
+        # Initialize Clay orchestrator if requested
+        if self.use_orchestrator and self.llm_provider:
+            try:
+                self.setup_clay_orchestrator()
+            except Exception as e:
+                console.print(f"[yellow]Warning: Failed to initialize Clay orchestrator: {e}[/yellow]")
+                console.print("[yellow]Falling back to legacy agent system[/yellow]")
+                self.use_orchestrator = False
 
     def load_session(self, session_id: str) -> bool:
         """Load a previous session."""
@@ -93,14 +109,110 @@ class ClaySession:
             WebSearchTool()
         ])
 
-        self.orchestrator.register_agent(coding_agent)
-        self.orchestrator.register_agent(research_agent)
+        self.agent_orchestrator.register_agent(coding_agent)
+        self.agent_orchestrator.register_agent(research_agent)
+
+        # Store the primary coding agent for orchestrator use
+        self.primary_agent = coding_agent
+
+    def setup_clay_orchestrator(self):
+        """Initialize the Clay orchestrator with all components."""
+        # Create policy configuration
+        policy_config = PolicyConfig(
+            # Allow common paths but restrict sensitive ones
+            denied_paths=[
+                ".env*", "*.key", "*.pem", "*.cert",
+                ".ssh/*", ".aws/*", ".gcp/*"
+            ],
+            # Security restrictions
+            forbid_credentials=True,
+            forbid_telemetry=True,
+            forbid_license_changes=True,
+            # Size limits
+            max_file_size=1_000_000,  # 1MB
+            max_diff_size=10_000,     # 10k lines
+            max_files_changed=50
+        )
+
+        self.clay_orchestrator = ClayOrchestrator(
+            agent=self.primary_agent,
+            working_dir=self.working_dir,
+            policy_config=policy_config
+        )
 
     async def process_message(self, message: str) -> str:
         """Process a user message and return response."""
         self.conversation.add_user_message(message)
         self.session_manager.add_message(self.session_id, "user", message)
 
+        # Check if this is a complex coding task that should use the orchestrator
+        if self.use_orchestrator and self.clay_orchestrator and self._is_complex_task(message):
+            return await self._process_with_orchestrator(message)
+        else:
+            return await self._process_with_agents(message)
+
+    def _is_complex_task(self, message: str) -> bool:
+        """Determine if this is a complex coding task that benefits from the orchestrator."""
+        complex_indicators = [
+            "implement", "create", "build", "add", "modify", "refactor",
+            "fix", "debug", "update", "write code", "change", "develop"
+        ]
+
+        simple_indicators = [
+            "read", "show", "find", "search", "grep", "list",
+            "what is", "how many", "explain", "describe"
+        ]
+
+        message_lower = message.lower()
+
+        # If it's clearly a simple query, use agents
+        if any(indicator in message_lower for indicator in simple_indicators):
+            return False
+
+        # If it mentions files or code changes, use orchestrator
+        if any(indicator in message_lower for indicator in complex_indicators):
+            return True
+
+        # Default to agents for ambiguous cases
+        return False
+
+    async def _process_with_orchestrator(self, message: str) -> str:
+        """Process message using the Clay orchestrator."""
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("Processing with Clay orchestrator...", total=None)
+
+            try:
+                # Extract constraints from message if any
+                constraints = {}
+                if self.append_system_prompt:
+                    constraints["system_prompt"] = self.append_system_prompt
+
+                result = await self.clay_orchestrator.process_task(message, constraints)
+
+                progress.update(task, completed=True)
+
+                # Format response based on result
+                if result.get("status") == "success":
+                    response = self._format_orchestrator_success(result)
+                elif result.get("status") == "error":
+                    response = f"Error: {result.get('error', 'Unknown error occurred')}"
+                else:
+                    response = f"Task completed with status: {result.get('status', 'unknown')}"
+
+            except Exception as e:
+                progress.update(task, completed=True)
+                response = f"Orchestrator error: {str(e)}"
+
+        self.conversation.add_assistant_message(response)
+        self.session_manager.add_message(self.session_id, "assistant", response)
+        return response
+
+    async def _process_with_agents(self, message: str) -> str:
+        """Process message using the legacy agent system."""
         context = AgentContext(
             working_directory=str(self.working_dir),
             conversation_history=self.conversation.get_history(),
@@ -121,15 +233,15 @@ class ClaySession:
         ) as progress:
             task = progress.add_task(f"Thinking with {agent_name}...", total=None)
 
-            task_id = f"task_{len(self.orchestrator.tasks)}"
-            agent_task = self.orchestrator.create_task(
+            task_id = f"task_{len(self.agent_orchestrator.tasks)}"
+            agent_task = self.agent_orchestrator.create_task(
                 task_id=task_id,
                 prompt=message,
                 agent_name=agent_name
             )
 
-            await self.orchestrator.submit_task(agent_task)
-            result = await self.orchestrator.run_task(agent_task, context)
+            await self.agent_orchestrator.submit_task(agent_task)
+            result = await self.agent_orchestrator.run_task(agent_task, context)
 
             progress.update(task, completed=True)
 
@@ -141,6 +253,59 @@ class ClaySession:
         self.conversation.add_assistant_message(response)
         self.session_manager.add_message(self.session_id, "assistant", response)
         return response
+
+    def _format_orchestrator_success(self, result: dict) -> str:
+        """Format successful orchestrator result into readable response."""
+        lines = []
+
+        # Basic completion message
+        lines.append("✅ Task completed successfully!")
+
+        # Add duration info
+        duration = result.get("duration", 0)
+        if duration > 0:
+            lines.append(f"⏱️  Duration: {duration:.1f} seconds")
+
+        # Add retry info if any
+        retry_count = result.get("retry_count", 0)
+        if retry_count > 0:
+            lines.append(f"🔄 Retries: {retry_count}")
+
+        # Add artifacts summary
+        artifacts = result.get("artifacts", {})
+        if artifacts:
+            lines.append("\n📋 Summary:")
+
+            if "plan" in artifacts:
+                plan = artifacts["plan"]
+                step_count = len(plan.get("steps", []))
+                lines.append(f"  • Created plan with {step_count} steps")
+
+            if "diffs" in artifacts and artifacts["diffs"]:
+                diff_count = len(artifacts["diffs"])
+                lines.append(f"  • Applied {diff_count} patch(es)")
+
+            if "full_test_results" in artifacts:
+                test_results = artifacts["full_test_results"]
+                if test_results.get("passed"):
+                    lines.append("  • ✅ All tests passing")
+                else:
+                    failed = len(test_results.get("failures", []))
+                    lines.append(f"  • ❌ {failed} test(s) failing")
+
+            if "format_lint_results" in artifacts:
+                format_lint = artifacts["format_lint_results"]
+                if artifacts.get("format_lint_clean"):
+                    lines.append("  • ✅ Format and lint checks passed")
+                else:
+                    lines.append("  • ⚠️  Format/lint issues detected")
+
+        # Add state information
+        final_state = result.get("final_state")
+        if final_state and final_state != "DONE":
+            lines.append(f"\n⚠️  Final state: {final_state}")
+
+        return "\n".join(lines)
 
     def determine_agent(self, message: str) -> str:
         """Determine which agent to use based on message."""
@@ -170,11 +335,13 @@ class ClaySession:
 @click.option("--continue", "-c", "continue_session", is_flag=True, help="Continue most recent conversation")
 @click.option("--resume", "-r", help="Resume specific session by ID")
 @click.option("--append-system-prompt", help="Append to system prompt")
+@click.option("--use-orchestrator/--no-orchestrator", default=True, help="Use Clay orchestrator for complex tasks")
+@click.option("--analyze-only", is_flag=True, help="Analyze project without making changes")
 def cli(query: Optional[str], print: bool, provider: Optional[str], model: Optional[str],
         api_key: Optional[str], fast: bool, add_dir: tuple, allowed_tools: tuple,
         disallowed_tools: tuple, output_format: str, input_format: str, verbose: bool,
         max_turns: Optional[int], continue_session: bool, resume: Optional[str],
-        append_system_prompt: Optional[str]):
+        append_system_prompt: Optional[str], use_orchestrator: bool, analyze_only: bool):
     """Clay - Agentic Coding System similar to Claude Code."""
 
     # Handle piped input
@@ -204,7 +371,8 @@ def cli(query: Optional[str], print: bool, provider: Optional[str], model: Optio
     session = ClaySession(
         llm_provider,
         working_dir=working_dirs[0],  # Primary working directory
-        fast_mode=fast
+        fast_mode=fast,
+        use_orchestrator=use_orchestrator
     )
 
     # Configure session with additional options
@@ -215,7 +383,10 @@ def cli(query: Optional[str], print: bool, provider: Optional[str], model: Optio
     session.append_system_prompt = append_system_prompt
 
     # Handle different execution modes
-    if print or query or piped_input:
+    if analyze_only:
+        # Analysis mode - analyze project structure
+        asyncio.run(run_analysis_mode(session, output_format))
+    elif print or query or piped_input:
         # Headless mode - print response and exit
         asyncio.run(run_headless_mode(session, query, piped_input, output_format))
     elif continue_session:
@@ -233,6 +404,39 @@ def cli(query: Optional[str], print: bool, provider: Optional[str], model: Optio
                 border_style="cyan"
             ))
         asyncio.run(run_interactive_mode(session, query))
+
+
+async def run_analysis_mode(session: ClaySession, output_format: str):
+    """Run in analysis mode - analyze project structure without changes."""
+    import json
+
+    if session.use_orchestrator and session.clay_orchestrator:
+        console.print("[cyan]Analyzing project with Clay orchestrator...[/cyan]")
+        result = await session.clay_orchestrator.analyze_project()
+    else:
+        console.print("[yellow]Orchestrator not available, using basic analysis[/yellow]")
+        result = {"status": "error", "error": "Orchestrator not initialized"}
+
+    if output_format == "json":
+        console.print(json.dumps(result, indent=2))
+    else:
+        if result.get("status") == "success":
+            console.print("[green]✅ Project Analysis Complete[/green]\n")
+
+            stack_info = result.get("stack_info", {})
+            if stack_info:
+                console.print("[bold]📚 Technology Stack:[/bold]")
+                for category, items in stack_info.items():
+                    if items:
+                        console.print(f"  {category}: {', '.join(items)}")
+
+            stats = result.get("stats", {})
+            if stats:
+                console.print(f"\n[bold]📊 Project Statistics:[/bold]")
+                for key, value in stats.items():
+                    console.print(f"  {key}: {value}")
+        else:
+            console.print(f"[red]❌ Analysis failed: {result.get('error', 'Unknown error')}[/red]")
 
 
 async def run_headless_mode(session: ClaySession, query: Optional[str], piped_input: Optional[str], output_format: str):
