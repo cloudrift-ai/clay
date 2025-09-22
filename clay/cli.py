@@ -14,7 +14,10 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 
-from .agents import CodingAgent, ResearchAgent, AgentOrchestrator, AgentContext
+from .agents import (
+    CodingAgent, ResearchAgent, FastCodingAgent,
+    AgentOrchestrator, AgentContext, StreamingAgent, ProgressiveSession
+)
 from .tools import (
     ReadTool, WriteTool, EditTool, GlobTool,
     BashTool, GrepTool, SearchTool,
@@ -30,16 +33,21 @@ console = Console()
 class ClaySession:
     """Main session handler for Clay CLI."""
 
-    def __init__(self, llm_provider=None, working_dir: str = "."):
+    def __init__(self, llm_provider=None, working_dir: str = ".", fast_mode: bool = False):
         self.llm_provider = llm_provider or get_default_provider()
         self.working_dir = Path(working_dir).resolve()
+        self.fast_mode = fast_mode
         self.orchestrator = AgentOrchestrator()
         self.conversation = ConversationManager()
         self.setup_agents()
 
     def setup_agents(self):
         """Initialize and configure agents."""
-        coding_agent = CodingAgent(self.llm_provider)
+        if self.fast_mode:
+            coding_agent = FastCodingAgent(self.llm_provider)
+        else:
+            coding_agent = CodingAgent(self.llm_provider)
+
         coding_agent.register_tools([
             ReadTool(),
             WriteTool(),
@@ -122,7 +130,8 @@ def cli():
 @click.option("--provider", "-p", help="LLM provider (openai/anthropic/cloudrift)")
 @click.option("--model", "-m", help="Model to use")
 @click.option("--api-key", "-k", help="API key for provider")
-def chat(provider: Optional[str], model: Optional[str], api_key: Optional[str]):
+@click.option("--fast", is_flag=True, help="Use fast mode for better performance")
+def chat(provider: Optional[str], model: Optional[str], api_key: Optional[str], fast: bool):
     """Start an interactive chat session."""
     console.print(Panel.fit(
         "[bold cyan]Clay - Agentic Coding System[/bold cyan]\n"
@@ -139,7 +148,7 @@ def chat(provider: Optional[str], model: Optional[str], api_key: Optional[str]):
             console.print(f"[yellow]Warning: {e}[/yellow]")
             console.print("[yellow]Running without LLM provider (mock mode)[/yellow]")
 
-    session = ClaySession(llm_provider)
+    session = ClaySession(llm_provider, fast_mode=fast)
     history_file = Path.home() / ".clay_history"
     prompt_session = PromptSession(history=FileHistory(str(history_file)))
 
@@ -177,13 +186,14 @@ def chat(provider: Optional[str], model: Optional[str], api_key: Optional[str]):
 @click.option("--provider", "-p", help="LLM provider (openai/anthropic/cloudrift)")
 @click.option("--model", "-m", help="Model to use")
 @click.option("--api-key", "-k", help="API key for provider")
-def run(prompt: str, provider: Optional[str], model: Optional[str], api_key: Optional[str]):
+@click.option("--fast", is_flag=True, help="Use fast mode for better performance")
+def run(prompt: str, provider: Optional[str], model: Optional[str], api_key: Optional[str], fast: bool):
     """Run a single command."""
     llm_provider = None
     if provider:
         llm_provider = create_llm_provider(provider, api_key=api_key, model=model)
 
-    session = ClaySession(llm_provider)
+    session = ClaySession(llm_provider, fast_mode=fast)
 
     async def execute():
         response = await session.process_message(prompt)
