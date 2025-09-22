@@ -16,7 +16,6 @@ class OrchestratorState(Enum):
     INGEST = auto()      # Clone/checkout, detect stack, hydrate caches
     PLAN = auto()        # Model proposes stepwise plan
     EDIT = auto()        # Model proposes unified diff
-    FORMAT_LINT = auto() # Run formatters & linters
     TEST = auto()        # Run targeted tests first, then full suite
     ITERATE = auto()     # Repair failed patches or tests
     DONE = auto()        # Emit artifacts and finalize
@@ -87,7 +86,6 @@ class ControlLoopOrchestrator:
             OrchestratorState.INGEST: self._handle_ingest,
             OrchestratorState.PLAN: self._handle_plan,
             OrchestratorState.EDIT: self._handle_edit,
-            OrchestratorState.FORMAT_LINT: self._handle_format_lint,
             OrchestratorState.TEST: self._handle_test,
             OrchestratorState.ITERATE: self._handle_iterate,
             OrchestratorState.DONE: self._handle_done,
@@ -110,18 +108,13 @@ class ControlLoopOrchestrator:
             ),
             StateTransition(
                 OrchestratorState.EDIT,
-                OrchestratorState.FORMAT_LINT,
+                OrchestratorState.TEST,
                 condition=lambda ctx: ctx.proposed_diff is not None and not ctx.artifacts.get('query_only', False)
             ),
             StateTransition(
                 OrchestratorState.EDIT,
                 OrchestratorState.DONE,
                 condition=lambda ctx: ctx.proposed_diff is not None and ctx.artifacts.get('query_only', False)
-            ),
-            StateTransition(
-                OrchestratorState.FORMAT_LINT,
-                OrchestratorState.TEST,
-                condition=lambda ctx: self._is_format_lint_clean(ctx)
             ),
             StateTransition(
                 OrchestratorState.TEST,
@@ -139,11 +132,6 @@ class ControlLoopOrchestrator:
                 OrchestratorState.ITERATE,
                 OrchestratorState.EDIT,
                 condition=lambda ctx: ctx.retry_count < ctx.max_retries
-            ),
-            StateTransition(
-                OrchestratorState.FORMAT_LINT,
-                OrchestratorState.ITERATE,
-                condition=lambda ctx: not self._is_format_lint_clean(ctx) and ctx.retry_count < ctx.max_retries
             ),
 
             # Abort transitions (from any state)
@@ -337,37 +325,6 @@ class ControlLoopOrchestrator:
         ctx.applied_patches.append(diff)
         ctx.artifacts['diffs'] = ctx.applied_patches
 
-    async def _handle_format_lint(self, ctx: OrchestratorContext):
-        """FORMAT_LINT state: Run formatters and linters."""
-        # Run formatter
-        format_result = await self.sandbox.exec(
-            cmd=ctx.constraints.get('format_cmd', 'black .'),
-            cwd=str(ctx.working_dir),
-            timeout_s=120
-        )
-
-        # Check if formatter made changes
-        formatter_diff = await self.patch_engine.get_formatter_diff()
-        if formatter_diff:
-            ctx.artifacts['formatter_diff'] = formatter_diff
-
-        # Run linter
-        lint_result = await self.sandbox.exec(
-            cmd=ctx.constraints.get('lint_cmd', 'ruff check .'),
-            cwd=str(ctx.working_dir),
-            timeout_s=180
-        )
-
-        ctx.artifacts['format_lint_results'] = {
-            'format': format_result,
-            'lint': lint_result
-        }
-
-        # Store results for transition condition
-        ctx.artifacts['format_lint_clean'] = (
-            format_result.exit_code == 0 and
-            lint_result.exit_code == 0
-        )
 
     async def _handle_test(self, ctx: OrchestratorContext):
         """TEST state: Run targeted tests first, then full suite."""
@@ -440,9 +397,6 @@ class ControlLoopOrchestrator:
 
         return False
 
-    def _is_format_lint_clean(self, ctx: OrchestratorContext) -> bool:
-        """Check if format and lint passed."""
-        return ctx.artifacts.get('format_lint_clean', False)
 
     def _tests_passing(self, ctx: OrchestratorContext) -> bool:
         """Check if tests are passing."""

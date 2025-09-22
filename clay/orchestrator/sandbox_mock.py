@@ -54,32 +54,8 @@ class MockSandboxManager:
                 stack_info["languages"].extend(info.get("languages", []))
                 stack_info["build_tools"].extend(info.get("build_tools", []))
 
-        # Detect specific tools
-        tool_checks = [
-            # Python
-            ("black", ["python", "--version"], "formatters"),
-            ("ruff", ["--version"], "linters"),
-            ("pytest", ["--version"], "test_frameworks"),
-            ("mypy", ["--version"], "linters"),
-            # JavaScript/TypeScript
-            ("prettier", ["--version"], "formatters"),
-            ("eslint", ["--version"], "linters"),
-            ("jest", ["--version"], "test_frameworks"),
-            # Rust
-            ("rustfmt", ["--version"], "formatters"),
-            ("clippy", ["--version"], "linters"),
-            # Go
-            ("gofmt", ["-h"], "formatters"),
-            ("golangci-lint", ["--version"], "linters"),
-        ]
-
-        for tool, check_args, category in tool_checks:
-            try:
-                result = await self._run_command([tool] + check_args, timeout_s=5, silent=True)
-                if result.exit_code == 0:
-                    stack_info[category].append(tool)
-            except Exception:
-                pass  # Tool not available
+        # Skip tool detection for now to avoid error messages
+        # TODO: Add tool detection back when needed for specific use cases
 
         # Remove duplicates
         for key in stack_info:
