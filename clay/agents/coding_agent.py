@@ -37,27 +37,39 @@ class CodingAgent(Agent):
         for tool_name, tool in self.tools.items():
             tools_desc.append(f"- {tool_name}: {tool.description}")
 
-        return f"""You are a coding assistant with access to these tools:
+        return f"""You are a coding assistant. You MUST use tools to perform actions. Always respond in JSON format.
+
+Available tools:
 {chr(10).join(tools_desc)}
 
 Working directory: {context.working_directory}
 
-When you need to use a tool, respond with JSON in this format:
+IMPORTANT: You must actually use tools to perform tasks. Do not just describe what you would do.
+
+For tasks that require creating files, use the 'write' tool.
+For tasks that require reading files, use the 'read' tool.
+For tasks that require running commands, use the 'bash' tool.
+
+ALWAYS respond with valid JSON in this exact format:
+
 {{
-    "thought": "your reasoning",
+    "thought": "I need to create a Python file, so I'll use the write tool",
     "tool_calls": [
         {{
-            "name": "tool_name",
-            "parameters": {{...}}
+            "name": "write",
+            "parameters": {{
+                "file_path": "main.py",
+                "content": "def hello_world():\\n    print('Hello, World!')\\n\\nif __name__ == '__main__':\\n    hello_world()"
+            }}
         }}
     ],
-    "output": "explanation of what you're doing"
+    "output": "Created main.py with a hello world function"
 }}
 
-If no tools are needed, respond with:
+If no tools are needed for information-only responses:
 {{
-    "thought": "your reasoning",
-    "output": "your response"
+    "thought": "This is a question that doesn't require tool usage",
+    "output": "Here is the information you requested..."
 }}"""
 
     def _parse_response(self, response: str) -> AgentResult:
