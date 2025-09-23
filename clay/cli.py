@@ -146,8 +146,8 @@ class ClaySession:
         self.conversation.add_user_message(message)
         self.session_manager.add_message(self.session_id, "user", message)
 
-        # Always use orchestrator if available, otherwise fall back to agents
-        if self.use_orchestrator and self.clay_orchestrator:
+        # Use orchestrator for complex tasks, agents for simple queries
+        if self.use_orchestrator and self.clay_orchestrator and self._is_complex_task(message):
             return await self._process_with_orchestrator(message)
         else:
             return await self._process_with_agents(message)
@@ -157,19 +157,25 @@ class ClaySession:
         complex_indicators = [
             "implement", "create", "build", "add", "modify", "refactor",
             "fix", "debug", "update", "write code", "change", "develop",
+            "write", "edit", "install", "setup", "configure", "deploy",
             "tetris", "game"  # Specific complex examples
         ]
 
         simple_indicators = [
-            "read", "show", "find", "search", "grep", "list",
-            "what is", "how many", "explain", "describe", "analyze",
-            "hello world", "simple"  # Simple examples
+            "read", "show", "find", "search", "grep", "list", "ls", "cat",
+            "what is", "how many", "explain", "describe", "analyze", "check",
+            "hello world", "simple", "display", "print", "view", "see",
+            "count", "summary", "summarize", "compare", "diff", "status"
         ]
 
         message_lower = message.lower()
 
         # If it's clearly a simple query, use agents
         if any(indicator in message_lower for indicator in simple_indicators):
+            return False
+
+        # Mathematical operations and simple queries
+        if any(pattern in message_lower for pattern in ["2+2", "what is", "calculate", "compute"]):
             return False
 
         # If it mentions files or code changes, use orchestrator
@@ -180,7 +186,7 @@ class ClaySession:
         if "plan" in message_lower and ("step" in message_lower or "break" in message_lower):
             return True
 
-        # Default to agents for ambiguous cases
+        # Default to agents for ambiguous cases (safer for user experience)
         return False
 
     async def _process_with_orchestrator(self, message: str) -> str:
@@ -386,20 +392,37 @@ def cli(ctx: click.Context, print: bool, provider: Optional[str], model: Optiona
     # Setup LLM provider using configuration system
     config = get_config()
     llm_provider = None
+    prompted_api_key = None
+    prompted_provider = None
+
+    # Check if this is first run (no API keys configured)
+    if not config.has_any_api_key() and not api_key and not provider:
+        # Only prompt in interactive mode (not when piped or in print mode)
+        if sys.stdin.isatty() and not print and not piped_input:
+            result = config.prompt_for_api_key()
+            if result:
+                prompted_provider, prompted_api_key = result
+                provider = prompted_provider  # Use prompted provider
 
     if provider:
-        # Explicit provider specified
+        # Explicit provider specified (or from prompt)
         provider_api_key, provider_model = config.get_provider_credentials(provider)
-        effective_api_key = api_key or provider_api_key
+        effective_api_key = api_key or prompted_api_key or provider_api_key
         effective_model = model or provider_model
+
+        if not effective_api_key:
+            console.print(f"[red]Error: No API key found for {provider}.[/red]")
+            console.print(f"[yellow]Set it with: export {provider.upper()}_API_KEY=your-key-here[/yellow]")
+            console.print(f"[yellow]Or run: clay config --set-api-key {provider}[/yellow]")
+            sys.exit(1)
 
         try:
             llm_provider = create_llm_provider(provider, effective_api_key, effective_model)
             if verbose:
                 console.print(f"[green]Using {provider} provider with model {effective_model or 'default'}[/green]")
         except Exception as e:
-            console.print(f"[yellow]Warning: {e}[/yellow]")
-            console.print("[yellow]Running without LLM provider (mock mode)[/yellow]")
+            console.print(f"[red]Error: Failed to initialize {provider}: {e}[/red]")
+            sys.exit(1)
     else:
         # Auto-detect provider from configuration
         default_provider = config.get_default_provider()
@@ -415,8 +438,13 @@ def cli(ctx: click.Context, print: bool, provider: Optional[str], model: Optiona
                 if verbose:
                     console.print(f"[yellow]Failed to use {default_provider}: {e}[/yellow]")
 
-        if not llm_provider and verbose:
-            console.print("[yellow]No API keys found, running in mock mode[/yellow]")
+        if not llm_provider:
+            console.print("[red]Error: No LLM provider available.[/red]")
+            console.print("[yellow]Please set up an API key:[/yellow]")
+            console.print("[yellow]  • Run 'clay' to start interactive setup[/yellow]")
+            console.print("[yellow]  • Or set environment variable: export CLOUDRIFT_API_KEY=your-key[/yellow]")
+            console.print("[yellow]  • Or run: clay config --set-api-key cloudrift[/yellow]")
+            sys.exit(1)
 
     # Setup working directories
     working_dirs = list(add_dir) if add_dir else ["."]
@@ -658,17 +686,64 @@ main_cli.add_command(cli, name="main")
 @click.option("--global", "global_config", is_flag=True, help="Initialize global config (~/.clay/config.toml)")
 @click.option("--local", "local_config", is_flag=True, help="Initialize local config (.clay.toml)")
 @click.option("--show", is_flag=True, help="Show current configuration")
-def config(global_config: bool, local_config: bool, show: bool):
+@click.option("--set-api-key", nargs=2, metavar=('PROVIDER', 'KEY'), help="Set API key for a provider")
+@click.option("--set-provider", help="Set default provider (cloudrift/anthropic/openai)")
+def config(global_config: bool, local_config: bool, show: bool, set_api_key: tuple, set_provider: str):
     """Manage Clay configuration."""
     from .config import get_config, ClayConfig
+    from rich.prompt import Prompt
+
+    clay_config = get_config()
+
+    # Handle --set-api-key
+    if set_api_key:
+        provider_name, api_key_value = set_api_key
+        if provider_name not in ['cloudrift', 'anthropic', 'openai']:
+            console.print(f"[red]Error: Invalid provider '{provider_name}'[/red]")
+            console.print("[yellow]Valid providers: cloudrift, anthropic, openai[/yellow]")
+            return
+
+        # Save to global config by default
+        config_path = Path.home() / '.clay' / 'config.toml'
+        clay_config.save_api_key(provider_name, api_key_value, config_path)
+        console.print(f"[green]✓ API key for {provider_name} saved to {config_path}[/green]")
+        return
+
+    # Handle --set-provider
+    if set_provider:
+        if set_provider not in ['cloudrift', 'anthropic', 'openai']:
+            console.print(f"[red]Error: Invalid provider '{set_provider}'[/red]")
+            console.print("[yellow]Valid providers: cloudrift, anthropic, openai[/yellow]")
+            return
+
+        # Save default provider to config
+        config_path = Path.home() / '.clay' / 'config.toml'
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Load existing config or create new one
+        config_data = {}
+        if config_path.exists():
+            try:
+                import tomllib
+                with open(config_path, 'rb') as f:
+                    config_data = tomllib.load(f)
+            except Exception:
+                pass
+
+        if 'defaults' not in config_data:
+            config_data['defaults'] = {}
+        config_data['defaults']['provider'] = set_provider
+
+        clay_config._write_toml_config(config_path, config_data)
+        console.print(f"[green]✓ Default provider set to {set_provider}[/green]")
+        return
 
     if show:
         # Show current configuration
-        config = get_config()
         console.print("\n[bold]Current Configuration:[/bold]")
 
         # Show available providers
-        available = config.get_available_providers()
+        available = clay_config.get_available_providers()
         if available:
             console.print("\n[green]Available Providers:[/green]")
             for name, provider_config in available.items():
@@ -678,7 +753,7 @@ def config(global_config: bool, local_config: bool, show: bool):
             console.print("\n[yellow]No providers configured[/yellow]")
 
         # Show default provider
-        default = config.get_default_provider()
+        default = clay_config.get_default_provider()
         if default:
             console.print(f"\n[blue]Default Provider:[/blue] {default}")
 

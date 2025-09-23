@@ -46,6 +46,11 @@ class ReadTool(Tool):
             for i, line in enumerate(selected_lines, start=offset + 1):
                 output.append(f"{i:6d}\t{line.rstrip()}")
 
+            # Print summary to console
+            from rich.console import Console
+            console = Console()
+            console.print(f"  [dim]→ Read {len(selected_lines)} lines from {file_path}[/dim]")
+
             return ToolResult(
                 status=ToolStatus.SUCCESS,
                 output="\n".join(output),
@@ -79,8 +84,18 @@ class WriteTool(Tool):
             path = Path(file_path).resolve()
             path.parent.mkdir(parents=True, exist_ok=True)
 
+            # Check if file exists for showing if it's new or overwritten
+            is_new = not path.exists()
+
             async with aiofiles.open(path, 'w', encoding='utf-8') as f:
                 await f.write(content)
+
+            # Print summary to console
+            from rich.console import Console
+            console = Console()
+            line_count = len(content.splitlines())
+            action = "Created new" if is_new else "Overwrote"
+            console.print(f"  [dim]→ {action} file with {line_count} lines[/dim]")
 
             return ToolResult(
                 status=ToolStatus.SUCCESS,
@@ -145,6 +160,19 @@ class EditTool(Tool):
             async with aiofiles.open(path, 'w', encoding='utf-8') as f:
                 await f.write(new_content)
 
+            # Print summary with diff preview
+            from rich.console import Console
+            from rich.syntax import Syntax
+            console = Console()
+
+            # Show a snippet of the change
+            console.print(f"  [dim]→ Replaced {count} occurrence(s)[/dim]")
+
+            # Show a small diff preview if changes are small enough
+            if len(old_string) < 200 and len(new_string) < 200:
+                console.print("  [red]- " + old_string[:100] + ("..." if len(old_string) > 100 else "") + "[/red]")
+                console.print("  [green]+ " + new_string[:100] + ("..." if len(new_string) > 100 else "") + "[/green]")
+
             return ToolResult(
                 status=ToolStatus.SUCCESS,
                 output=f"Replaced {count} occurrence(s) in {file_path}"
@@ -179,6 +207,22 @@ class GlobTool(Tool):
 
             matches = glob.glob(full_pattern, recursive=True)
             matches.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+
+            # Print summary to console
+            from rich.console import Console
+            console = Console()
+            if matches:
+                console.print(f"  [dim]→ Found {len(matches)} file(s) matching pattern[/dim]")
+                # Show first few matches as preview
+                if len(matches) <= 3:
+                    for match in matches:
+                        console.print(f"    [dim]• {Path(match).name}[/dim]")
+                else:
+                    for match in matches[:2]:
+                        console.print(f"    [dim]• {Path(match).name}[/dim]")
+                    console.print(f"    [dim]• ... and {len(matches) - 2} more[/dim]")
+            else:
+                console.print(f"  [dim]→ No files found matching pattern[/dim]")
 
             return ToolResult(
                 status=ToolStatus.SUCCESS,

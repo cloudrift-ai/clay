@@ -66,12 +66,42 @@ class Agent(ABC):
             raise ValueError(f"Tool {tool_name} not found")
 
         tool = self.tools[tool_name]
+
+        # Print tool execution status
+        from rich.console import Console
+        console = Console()
+        console.print(f"[cyan]➤ Executing {tool_name}[/cyan]", end="")
+
+        # Print tool-specific summary
+        if tool_name == "bash":
+            cmd = parameters.get("command", "")
+            console.print(f": [yellow]{cmd[:80]}{'...' if len(cmd) > 80 else ''}[/yellow]")
+        elif tool_name == "read":
+            console.print(f": [green]{parameters.get('file_path', '')}[/green]")
+        elif tool_name == "write":
+            console.print(f": [green]{parameters.get('file_path', '')}[/green]")
+        elif tool_name == "edit":
+            console.print(f": [green]{parameters.get('file_path', '')}[/green]")
+        elif tool_name == "glob":
+            console.print(f": [yellow]{parameters.get('pattern', '')}[/yellow]")
+        elif tool_name == "grep":
+            console.print(f": [yellow]{parameters.get('pattern', '')}[/yellow]")
+        else:
+            console.print()
+
         return await tool.run(**parameters)
 
     async def run(self, prompt: str, context: AgentContext) -> AgentResult:
         """Run the agent with a prompt."""
         self.context = context
         self.status = AgentStatus.THINKING
+
+        # Print agent status
+        from rich.console import Console
+        console = Console()
+        # Truncate prompt for display
+        display_prompt = prompt[:100] + "..." if len(prompt) > 100 else prompt
+        console.print(f"\n[bold blue]🤖 {self.name} Agent[/bold blue]: [italic]{display_prompt}[/italic]\n")
 
         try:
             result = await self.think(prompt, context)
