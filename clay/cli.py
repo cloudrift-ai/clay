@@ -18,6 +18,7 @@ from .agents import (
     CodingAgent, ResearchAgent, FastCodingAgent,
     AgentOrchestrator, AgentContext, StreamingAgent, ProgressiveSession
 )
+from .agents.smart_agent import SmartAgent
 from .config import get_config
 from .tools import (
     ReadTool, WriteTool, EditTool, GlobTool,
@@ -87,6 +88,43 @@ class ClaySession:
 
     def setup_agents(self):
         """Initialize and configure agents."""
+        config = get_config()
+
+        # Use SmartAgent with multi-model routing if enabled
+        if config.is_multi_model_routing_enabled():
+            # Get API keys for all providers
+            api_keys = {}
+            for provider in ['cloudrift', 'anthropic', 'openai']:
+                key, _ = config.get_provider_credentials(provider)
+                if key:
+                    api_keys[provider] = key
+
+            if api_keys:  # Only use smart agent if we have API keys
+                coding_agent = SmartAgent(api_keys, "coding_agent")
+                coding_agent.register_tools([
+                    ReadTool(),
+                    WriteTool(),
+                    EditTool(),
+                    GlobTool(),
+                    BashTool(),
+                    GrepTool(),
+                    SearchTool()
+                ])
+
+                research_agent = SmartAgent(api_keys, "research_agent")
+                research_agent.register_tools([
+                    GrepTool(),
+                    SearchTool(),
+                    WebFetchTool(),
+                    WebSearchTool()
+                ])
+
+                self.agent_orchestrator.register_agent(coding_agent)
+                self.agent_orchestrator.register_agent(research_agent)
+                self.primary_agent = coding_agent
+                return
+
+        # Fallback to traditional agents
         if self.fast_mode:
             coding_agent = FastCodingAgent(self.llm_provider)
         else:
@@ -686,9 +724,10 @@ main_cli.add_command(cli, name="main")
 @click.option("--global", "global_config", is_flag=True, help="Initialize global config (~/.clay/config.toml)")
 @click.option("--local", "local_config", is_flag=True, help="Initialize local config (.clay.toml)")
 @click.option("--show", is_flag=True, help="Show current configuration")
+@click.option("--show-models", is_flag=True, help="Show available models and task routing")
 @click.option("--set-api-key", nargs=2, metavar=('PROVIDER', 'KEY'), help="Set API key for a provider")
 @click.option("--set-provider", help="Set default provider (cloudrift/anthropic/openai)")
-def config(global_config: bool, local_config: bool, show: bool, set_api_key: tuple, set_provider: str):
+def config(global_config: bool, local_config: bool, show: bool, show_models: bool, set_api_key: tuple, set_provider: str):
     """Manage Clay configuration."""
     from .config import get_config, ClayConfig
     from rich.prompt import Prompt
@@ -764,6 +803,35 @@ def config(global_config: bool, local_config: bool, show: bool, set_api_key: tup
 
         console.print(f"  • Global: {global_path} {'✓' if global_path.exists() else '✗'}")
         console.print(f"  • Local:  {local_path} {'✓' if local_path.exists() else '✗'}")
+
+        return
+
+    if show_models:
+        # Show model routing information
+        console.print("\n[bold]Multi-Model System:[/bold]")
+
+        # Create a smart agent to get model info
+        try:
+            smart_agent = SmartAgent()
+            model_info = smart_agent.get_model_info()
+
+            console.print(f"\n[blue]Multi-Model Routing:[/blue] {'✓ Enabled' if model_info['multi_model_enabled'] else '✗ Disabled'}")
+
+            console.print("\n[green]Task Types:[/green]")
+            for task_type, description in model_info['task_types'].items():
+                console.print(f"  • [cyan]{task_type}[/cyan]: {description}")
+
+            console.print("\n[green]Available Models by Task Type:[/green]")
+            for task_type, models in model_info['available_models'].items():
+                console.print(f"\n  [cyan]{task_type.name}:[/cyan]")
+                if models:
+                    for model in models:
+                        console.print(f"    • {model}")
+                else:
+                    console.print("    • [yellow]No models available (missing API keys)[/yellow]")
+
+        except Exception as e:
+            console.print(f"[red]Error showing model info: {e}[/red]")
 
         return
 

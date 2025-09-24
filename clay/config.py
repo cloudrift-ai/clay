@@ -33,6 +33,36 @@ class ClayConfig:
                 'max_retries': 3,
                 'timeout_minutes': 30,
                 'max_tokens': 100000
+            },
+            'models': {
+                'multi_model_routing': True,
+                'task_types': {
+                    'simple_reasoning': {
+                        'preferred_providers': ['cloudrift', 'openai', 'anthropic'],
+                        'temperature': 0.3,
+                        'max_tokens': 2048
+                    },
+                    'complex_reasoning': {
+                        'preferred_providers': ['anthropic', 'openai', 'cloudrift'],
+                        'temperature': 0.5,
+                        'max_tokens': 8192
+                    },
+                    'coding': {
+                        'preferred_providers': ['anthropic', 'cloudrift', 'openai'],
+                        'temperature': 0.2,
+                        'max_tokens': 8192
+                    },
+                    'creative': {
+                        'preferred_providers': ['anthropic', 'openai', 'cloudrift'],
+                        'temperature': 0.8,
+                        'max_tokens': 4096
+                    },
+                    'research': {
+                        'preferred_providers': ['anthropic', 'openai', 'cloudrift'],
+                        'temperature': 0.4,
+                        'max_tokens': 8192
+                    }
+                }
             }
         }
 
@@ -149,6 +179,19 @@ class ClayConfig:
     def get_orchestrator_config(self) -> Dict[str, Any]:
         """Get orchestrator configuration."""
         return self.config.get('orchestrator', {})
+
+    def get_models_config(self) -> Dict[str, Any]:
+        """Get models configuration."""
+        return self.config.get('models', {})
+
+    def is_multi_model_routing_enabled(self) -> bool:
+        """Check if multi-model routing is enabled."""
+        return self.get_models_config().get('multi_model_routing', True)
+
+    def get_task_type_config(self, task_type: str) -> Dict[str, Any]:
+        """Get configuration for a specific task type."""
+        task_types = self.get_models_config().get('task_types', {})
+        return task_types.get(task_type, {})
 
     def has_any_api_key(self) -> bool:
         """Check if any API key is configured."""
