@@ -19,6 +19,7 @@ class CloudriftProvider(LLMProvider):
         super().__init__(api_key, model)
         self.base_url = "https://inference.cloudrift.ai/v1"
 
+    @trace_operation("LLM", "api_call")
     async def complete(
         self,
         system_prompt: str,
@@ -28,64 +29,58 @@ class CloudriftProvider(LLMProvider):
         **kwargs
     ) -> LLMResponse:
         """Get completion from Cloudrift."""
-        with trace_operation("LLM", "api_call",
-                           provider="cloudrift",
-                           model=self.model,
-                           prompt_length=len(system_prompt) + len(user_prompt),
-                           temperature=temperature or self.default_temperature):
+        trace_llm_call("cloudrift", self.model, len(system_prompt) + len(user_prompt),
+                      temperature=temperature or self.default_temperature,
+                      max_tokens=max_tokens or self.default_max_tokens)
 
-            trace_llm_call("cloudrift", self.model, len(system_prompt) + len(user_prompt),
-                          temperature=temperature or self.default_temperature,
-                          max_tokens=max_tokens or self.default_max_tokens)
+        messages = self.build_messages(system_prompt, user_prompt, kwargs.get("history"))
 
-            messages = self.build_messages(system_prompt, user_prompt, kwargs.get("history"))
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
 
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
+        data = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature or self.default_temperature,
+            "max_tokens": max_tokens or self.default_max_tokens
+        }
 
-            data = {
-                "model": self.model,
-                "messages": messages,
-                "temperature": temperature or self.default_temperature,
-                "max_tokens": max_tokens or self.default_max_tokens
-            }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=data
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        error = Exception(f"Cloudrift API error: {error_text}")
+                        trace_error("LLM", "api_call_failed", error,
+                                   provider="cloudrift",
+                                   status_code=response.status)
+                        raise error
 
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        f"{self.base_url}/chat/completions",
-                        headers=headers,
-                        json=data
-                    ) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            error = Exception(f"Cloudrift API error: {error_text}")
-                            trace_error("LLM", "api_call_failed", error,
-                                       provider="cloudrift",
-                                       status_code=response.status)
-                            raise error
+                    result = await response.json()
+                    response_obj = LLMResponse(
+                        content=result["choices"][0]["message"]["content"],
+                        model=result["model"],
+                        usage=result.get("usage"),
+                        metadata={"finish_reason": result["choices"][0].get("finish_reason")}
+                    )
 
-                        result = await response.json()
-                        response_obj = LLMResponse(
-                            content=result["choices"][0]["message"]["content"],
-                            model=result["model"],
-                            usage=result.get("usage"),
-                            metadata={"finish_reason": result["choices"][0].get("finish_reason")}
-                        )
+                    # Log successful completion
+                    trace_llm_call("cloudrift", self.model, len(system_prompt) + len(user_prompt),
+                                  response_length=len(response_obj.content),
+                                  usage=result.get("usage"),
+                                  finish_reason=result["choices"][0].get("finish_reason"))
 
-                        # Log successful completion
-                        trace_llm_call("cloudrift", self.model, len(system_prompt) + len(user_prompt),
-                                      response_length=len(response_obj.content),
-                                      usage=result.get("usage"),
-                                      finish_reason=result["choices"][0].get("finish_reason"))
+                    return response_obj
 
-                        return response_obj
-
-            except Exception as e:
-                trace_error("LLM", "api_call_exception", e, provider="cloudrift")
-                raise
+        except Exception as e:
+            trace_error("LLM", "api_call_exception", e, provider="cloudrift")
+            raise
 
     async def stream_complete(
         self,

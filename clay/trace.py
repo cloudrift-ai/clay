@@ -8,7 +8,6 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
-from contextlib import contextmanager
 from dataclasses import dataclass, asdict
 from functools import wraps
 
@@ -120,51 +119,109 @@ def trace_error(component: str, operation: str, error: Exception, **details):
     _trace_collector.add_event(event)
 
 
-@contextmanager
 def trace_operation(component: str, operation: str, **details):
-    """Context manager for tracing operations with duration."""
-    start_time = time.time()
+    """Decorator for tracing operations with duration."""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
 
-    # Record start event
-    start_event = TraceEvent(
-        timestamp=start_time,
-        event_type="operation_start",
-        component=component,
-        operation=operation,
-        details=details
-    )
-    _trace_collector.add_event(start_event)
+            # Record start event
+            start_event = TraceEvent(
+                timestamp=start_time,
+                event_type="operation_start",
+                component=component,
+                operation=operation,
+                details=details
+            )
+            _trace_collector.add_event(start_event)
 
-    try:
-        yield
+            try:
+                result = func(*args, **kwargs)
 
-        # Record success end event
-        duration = time.time() - start_time
-        end_event = TraceEvent(
-            timestamp=time.time(),
-            event_type="operation_end",
-            component=component,
-            operation=operation,
-            details={**details, "status": "success"},
-            duration=duration
-        )
-        _trace_collector.add_event(end_event)
+                # Record success end event
+                duration = time.time() - start_time
+                end_event = TraceEvent(
+                    timestamp=time.time(),
+                    event_type="operation_end",
+                    component=component,
+                    operation=operation,
+                    details={**details, "status": "success"},
+                    duration=duration
+                )
+                _trace_collector.add_event(end_event)
+                return result
 
-    except Exception as e:
-        # Record error end event
-        duration = time.time() - start_time
-        end_event = TraceEvent(
-            timestamp=time.time(),
-            event_type="operation_end",
-            component=component,
-            operation=operation,
-            details={**details, "status": "error"},
-            duration=duration,
-            error=str(e),
-            stack_trace=traceback.format_exc()
-        )
-        _trace_collector.add_event(end_event)
-        raise
+            except Exception as e:
+                # Record error end event
+                duration = time.time() - start_time
+                end_event = TraceEvent(
+                    timestamp=time.time(),
+                    event_type="operation_end",
+                    component=component,
+                    operation=operation,
+                    details={**details, "status": "error"},
+                    duration=duration,
+                    error=str(e),
+                    stack_trace=traceback.format_exc()
+                )
+                _trace_collector.add_event(end_event)
+                raise
+
+        @wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            start_time = time.time()
+
+            # Record start event
+            start_event = TraceEvent(
+                timestamp=start_time,
+                event_type="operation_start",
+                component=component,
+                operation=operation,
+                details=details
+            )
+            _trace_collector.add_event(start_event)
+
+            try:
+                result = await func(*args, **kwargs)
+
+                # Record success end event
+                duration = time.time() - start_time
+                end_event = TraceEvent(
+                    timestamp=time.time(),
+                    event_type="operation_end",
+                    component=component,
+                    operation=operation,
+                    details={**details, "status": "success"},
+                    duration=duration
+                )
+                _trace_collector.add_event(end_event)
+                return result
+
+            except Exception as e:
+                # Record error end event
+                duration = time.time() - start_time
+                end_event = TraceEvent(
+                    timestamp=time.time(),
+                    event_type="operation_end",
+                    component=component,
+                    operation=operation,
+                    details={**details, "status": "error"},
+                    duration=duration,
+                    error=str(e),
+                    stack_trace=traceback.format_exc()
+                )
+                _trace_collector.add_event(end_event)
+                raise
+
+        # Return appropriate wrapper based on whether function is async
+        import asyncio
+        if asyncio.iscoroutinefunction(func):
+            return async_wrapper
+        else:
+            return wrapper
+
+    return decorator
 
 
 def trace_method(component: str = None):
@@ -186,8 +243,49 @@ def trace_method(component: str = None):
                 "kwargs": list(kwargs.keys())
             }
 
-            with trace_operation(comp, func.__name__, **method_details):
-                return func(*args, **kwargs)
+            start_time = time.time()
+
+            # Record start event
+            start_event = TraceEvent(
+                timestamp=start_time,
+                event_type="operation_start",
+                component=comp,
+                operation=func.__name__,
+                details=method_details
+            )
+            _trace_collector.add_event(start_event)
+
+            try:
+                result = func(*args, **kwargs)
+
+                # Record success end event
+                duration = time.time() - start_time
+                end_event = TraceEvent(
+                    timestamp=time.time(),
+                    event_type="operation_end",
+                    component=comp,
+                    operation=func.__name__,
+                    details={**method_details, "status": "success"},
+                    duration=duration
+                )
+                _trace_collector.add_event(end_event)
+                return result
+
+            except Exception as e:
+                # Record error end event
+                duration = time.time() - start_time
+                end_event = TraceEvent(
+                    timestamp=time.time(),
+                    event_type="operation_end",
+                    component=comp,
+                    operation=func.__name__,
+                    details={**method_details, "status": "error"},
+                    duration=duration,
+                    error=str(e),
+                    stack_trace=traceback.format_exc()
+                )
+                _trace_collector.add_event(end_event)
+                raise
 
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
@@ -205,8 +303,49 @@ def trace_method(component: str = None):
                 "kwargs": list(kwargs.keys())
             }
 
-            with trace_operation(comp, func.__name__, **method_details):
-                return await func(*args, **kwargs)
+            start_time = time.time()
+
+            # Record start event
+            start_event = TraceEvent(
+                timestamp=start_time,
+                event_type="operation_start",
+                component=comp,
+                operation=func.__name__,
+                details=method_details
+            )
+            _trace_collector.add_event(start_event)
+
+            try:
+                result = await func(*args, **kwargs)
+
+                # Record success end event
+                duration = time.time() - start_time
+                end_event = TraceEvent(
+                    timestamp=time.time(),
+                    event_type="operation_end",
+                    component=comp,
+                    operation=func.__name__,
+                    details={**method_details, "status": "success"},
+                    duration=duration
+                )
+                _trace_collector.add_event(end_event)
+                return result
+
+            except Exception as e:
+                # Record error end event
+                duration = time.time() - start_time
+                end_event = TraceEvent(
+                    timestamp=time.time(),
+                    event_type="operation_end",
+                    component=comp,
+                    operation=func.__name__,
+                    details={**method_details, "status": "error"},
+                    duration=duration,
+                    error=str(e),
+                    stack_trace=traceback.format_exc()
+                )
+                _trace_collector.add_event(end_event)
+                raise
 
         # Return appropriate wrapper based on whether function is async
         import asyncio

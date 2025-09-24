@@ -61,105 +61,97 @@ class Agent(ABC):
         """Process a prompt and decide on actions."""
         pass
 
+    @trace_operation("Agent", "execute_tool")
     async def execute_tool(self, tool_name: str, parameters: Dict[str, Any]) -> ToolResult:
         """Execute a tool with given parameters."""
-        with trace_operation("Agent", "execute_tool",
-                           agent_name=self.name,
-                           tool_name=tool_name,
-                           parameters=list(parameters.keys())):
+        if tool_name not in self.tools:
+            raise ValueError(f"Tool {tool_name} not found")
 
-            if tool_name not in self.tools:
-                raise ValueError(f"Tool {tool_name} not found")
+        tool = self.tools[tool_name]
 
-            tool = self.tools[tool_name]
+        trace_event("Tool", "execution_started",
+                   agent=self.name,
+                   tool_name=tool_name,
+                   parameter_count=len(parameters))
 
-            trace_event("Tool", "execution_started",
-                       agent=self.name,
-                       tool_name=tool_name,
-                       parameter_count=len(parameters))
+        # Print tool execution status
+        from rich.console import Console
+        console = Console()
+        console.print(f"[cyan]➤ Executing {tool_name}[/cyan]", end="")
 
-            # Print tool execution status
-            from rich.console import Console
-            console = Console()
-            console.print(f"[cyan]➤ Executing {tool_name}[/cyan]", end="")
+        # Print tool-specific summary
+        if tool_name == "bash":
+            cmd = parameters.get("command", "")
+            console.print(f": [yellow]{cmd[:80]}{'...' if len(cmd) > 80 else ''}[/yellow]")
+        elif tool_name == "read":
+            console.print(f": [green]{parameters.get('file_path', '')}[/green]")
+        elif tool_name == "write":
+            console.print(f": [green]{parameters.get('file_path', '')}[/green]")
+        elif tool_name == "edit":
+            console.print(f": [green]{parameters.get('file_path', '')}[/green]")
+        elif tool_name == "glob":
+            console.print(f": [yellow]{parameters.get('pattern', '')}[/yellow]")
+        elif tool_name == "grep":
+            console.print(f": [yellow]{parameters.get('pattern', '')}[/yellow]")
+        else:
+            console.print()
 
-            # Print tool-specific summary
-            if tool_name == "bash":
-                cmd = parameters.get("command", "")
-                console.print(f": [yellow]{cmd[:80]}{'...' if len(cmd) > 80 else ''}[/yellow]")
-            elif tool_name == "read":
-                console.print(f": [green]{parameters.get('file_path', '')}[/green]")
-            elif tool_name == "write":
-                console.print(f": [green]{parameters.get('file_path', '')}[/green]")
-            elif tool_name == "edit":
-                console.print(f": [green]{parameters.get('file_path', '')}[/green]")
-            elif tool_name == "glob":
-                console.print(f": [yellow]{parameters.get('pattern', '')}[/yellow]")
-            elif tool_name == "grep":
-                console.print(f": [yellow]{parameters.get('pattern', '')}[/yellow]")
-            else:
-                console.print()
+        result = await tool.run(**parameters)
 
-            result = await tool.run(**parameters)
+        trace_event("Tool", "execution_completed",
+                   agent=self.name,
+                   tool_name=tool_name,
+                   success=(result.status == ToolStatus.SUCCESS),
+                   output_length=len(result.output or ""))
 
-            trace_event("Tool", "execution_completed",
-                       agent=self.name,
-                       tool_name=tool_name,
-                       success=(result.status == ToolStatus.SUCCESS),
-                       output_length=len(result.output or ""))
+        return result
 
-            return result
-
+    @trace_operation("Agent", "run")
     async def run(self, prompt: str, context: AgentContext) -> AgentResult:
         """Run the agent with a prompt."""
-        with trace_operation("Agent", "run",
-                           agent_name=self.name,
-                           prompt_length=len(prompt),
-                           has_tools=len(self.tools) > 0):
+        trace_agent_action(self.name, "started", prompt_length=len(prompt))
 
-            trace_agent_action(self.name, "started", prompt_length=len(prompt))
+        self.context = context
+        self.status = AgentStatus.THINKING
 
-            self.context = context
-            self.status = AgentStatus.THINKING
+        # Print agent status
+        from rich.console import Console
+        console = Console()
+        # Truncate prompt for display
+        display_prompt = prompt[:100] + "..." if len(prompt) > 100 else prompt
+        console.print(f"\n[bold blue]🤖 {self.name} Agent[/bold blue]: [italic]{display_prompt}[/italic]\n")
 
-            # Print agent status
-            from rich.console import Console
-            console = Console()
-            # Truncate prompt for display
-            display_prompt = prompt[:100] + "..." if len(prompt) > 100 else prompt
-            console.print(f"\n[bold blue]🤖 {self.name} Agent[/bold blue]: [italic]{display_prompt}[/italic]\n")
+        try:
+            trace_agent_action(self.name, "thinking")
+            result = await self.think(prompt, context)
 
-            try:
-                trace_agent_action(self.name, "thinking")
-                result = await self.think(prompt, context)
+            if result.tool_calls:
+                trace_agent_action(self.name, "executing_tools",
+                                 tool_count=len(result.tool_calls))
+                self.status = AgentStatus.RUNNING_TOOL
+                tool_results = []
 
-                if result.tool_calls:
-                    trace_agent_action(self.name, "executing_tools",
-                                     tool_count=len(result.tool_calls))
-                    self.status = AgentStatus.RUNNING_TOOL
-                    tool_results = []
+                for call in result.tool_calls:
+                    tool_result = await self.execute_tool(
+                        call["name"],
+                        call["parameters"]
+                    )
+                    tool_results.append({
+                        "tool": call["name"],
+                        "result": tool_result.to_dict()
+                    })
 
-                    for call in result.tool_calls:
-                        tool_result = await self.execute_tool(
-                            call["name"],
-                            call["parameters"]
-                        )
-                        tool_results.append({
-                            "tool": call["name"],
-                            "result": tool_result.to_dict()
-                        })
+                result.metadata = {"tool_results": tool_results}
 
-                    result.metadata = {"tool_results": tool_results}
+            self.status = AgentStatus.COMPLETE
+            trace_agent_action(self.name, "completed",
+                             output_length=len(result.output or ""))
+            return result
 
-                self.status = AgentStatus.COMPLETE
-                trace_agent_action(self.name, "completed",
-                                 output_length=len(result.output or ""))
-                return result
-
-            except Exception as e:
-                self.status = AgentStatus.ERROR
-                trace_error("Agent", "execution_failed", e, agent_name=self.name)
-                return AgentResult(
-                    status=AgentStatus.ERROR,
-                    error=str(e)
-                )
+        except Exception as e:
+            self.status = AgentStatus.ERROR
+            trace_error("Agent", "execution_failed", e, agent_name=self.name)
+            return AgentResult(
+                status=AgentStatus.ERROR,
+                error=str(e)
+            )
