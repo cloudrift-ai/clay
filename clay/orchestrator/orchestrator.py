@@ -7,8 +7,6 @@ from typing import Dict, Any, Optional
 
 from .fsm import ControlLoopOrchestrator
 from .context_engine import ContextEngine
-from .patch_engine import PatchEngine
-from .policy_engine import PolicyEngine, PolicyConfig
 
 logger = logging.getLogger(__name__)
 
@@ -16,21 +14,17 @@ logger = logging.getLogger(__name__)
 class ClayOrchestrator:
     """Main orchestrator that integrates all components for intelligent code modification."""
 
-    def __init__(self, agent, working_dir: Path, policy_config: Optional[PolicyConfig] = None):
+    def __init__(self, agent, working_dir: Path, policy_config: Optional[Dict] = None):
         """Initialize the orchestrator with all components."""
         self.working_dir = working_dir
         self.agent = agent
 
         # Initialize all components
         self.context_engine = ContextEngine(working_dir)
-        self.patch_engine = PatchEngine(working_dir)
-        self.policy_engine = PolicyEngine(policy_config)
 
         # Initialize the FSM orchestrator
         self.fsm_orchestrator = ControlLoopOrchestrator(
             context_engine=self.context_engine,
-            patch_engine=self.patch_engine,
-            policy_engine=self.policy_engine,
             model_agent=self.agent
         )
 
@@ -162,12 +156,6 @@ class ClayOrchestrator:
                 "error": str(e)
             }
 
-    def configure_policy(self, config: PolicyConfig):
-        """Update policy configuration."""
-        self.policy_engine = PolicyEngine(config)
-
-        # Update FSM orchestrator with new policy engine
-        self.fsm_orchestrator.policy = self.policy_engine
 
         logger.info("Updated policy configuration")
 

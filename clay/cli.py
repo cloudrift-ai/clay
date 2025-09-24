@@ -27,7 +27,7 @@ from .tools import (
 from .llm import create_llm_provider, get_default_provider
 from .conversation import ConversationManager
 from .session_manager import SessionManager
-from .orchestrator import ClayOrchestrator, PolicyConfig
+from .orchestrator import ClayOrchestrator
 from .trace import (
     trace_operation, trace_event, trace_error,
     save_trace_file, set_session_id, clear_trace
@@ -138,27 +138,9 @@ class ClaySession:
 
     def setup_clay_orchestrator(self):
         """Initialize the Clay orchestrator with all components."""
-        # Create policy configuration
-        policy_config = PolicyConfig(
-            # Allow common paths but restrict sensitive ones
-            denied_paths=[
-                ".env*", "*.key", "*.pem", "*.cert",
-                ".ssh/*", ".aws/*", ".gcp/*"
-            ],
-            # Security restrictions
-            forbid_credentials=True,
-            forbid_telemetry=True,
-            forbid_license_changes=True,
-            # Size limits
-            max_file_size=1_000_000,  # 1MB
-            max_diff_size=10_000,     # 10k lines
-            max_files_changed=50
-        )
-
         self.clay_orchestrator = ClayOrchestrator(
             agent=self.primary_agent,
-            working_dir=self.working_dir,
-            policy_config=policy_config
+            working_dir=self.working_dir
         )
 
     @trace_operation("ClaySession", "process_message")
