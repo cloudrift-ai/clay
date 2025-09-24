@@ -487,7 +487,7 @@ def save_trace_file(session_id: str = None, output_dir: Path = None) -> Path:
     """Save trace to file and return the filepath."""
     if output_dir is None:
         # Use current working directory - for tests this will be the isolated test directory
-        output_dir = Path.cwd() / "traces"
+        output_dir = Path.cwd() / "_traces"
 
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
