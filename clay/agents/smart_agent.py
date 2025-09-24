@@ -49,7 +49,13 @@ class SmartAgent(Agent):
         # Print model selection info
         from rich.console import Console
         console = Console()
-        console.print(f"[dim]→ Using {task_type.name.lower()} model: {model_config.provider}:{model_config.model}[/dim]")
+
+        # Format model name nicely
+        model_display = model_config.model
+        if "/" in model_display:
+            model_display = model_display.split("/")[-1]  # Show just the model name part
+
+        console.print(f"[dim]→ Using {task_type.name.lower().replace('_', ' ')} model: {model_config.provider}:{model_display}[/dim]")
 
         # Build system prompt based on task type
         system_prompt = self._build_system_prompt(task_type, context)
@@ -149,26 +155,75 @@ Respond with JSON:
     def _parse_response(self, response: str, task_type: TaskType) -> AgentResult:
         """Parse LLM response with task-type specific handling."""
         try:
-            data = json.loads(response)
+            # Try to extract JSON from the response
+            response_clean = response.strip()
+
+            # If response is wrapped in markdown code blocks, extract the JSON
+            if response_clean.startswith("```json"):
+                start = response_clean.find("{")
+                end = response_clean.rfind("}") + 1
+                if start != -1 and end > start:
+                    response_clean = response_clean[start:end]
+            elif response_clean.startswith("```"):
+                # Remove markdown code blocks
+                lines = response_clean.split('\n')
+                lines = [line for line in lines if not line.strip().startswith('```')]
+                response_clean = '\n'.join(lines).strip()
+
+            data = json.loads(response_clean)
+
+            # Convert tool_calls to the expected format if needed
+            tool_calls = data.get("tool_calls", [])
+            formatted_tool_calls = []
+
+            for call in tool_calls:
+                if isinstance(call, dict):
+                    # Handle different formats of tool calls
+                    if "tool" in call:
+                        formatted_call = {
+                            "name": call["tool"],
+                            "parameters": call.get("args", call.get("parameters", {}))
+                        }
+                    elif "name" in call:
+                        formatted_call = call
+                    else:
+                        formatted_call = call
+                    formatted_tool_calls.append(formatted_call)
+
             return AgentResult(
                 status=AgentStatus.COMPLETE,
                 output=data.get("output"),
-                tool_calls=data.get("tool_calls", []),
+                tool_calls=formatted_tool_calls,
                 metadata={"task_type": task_type.name, "thought": data.get("thought")}
             )
-        except json.JSONDecodeError:
-            # For simple tasks, raw response might be better
+
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            # For simple tasks, try to extract just the answer
             if task_type == TaskType.SIMPLE_REASONING:
+                # Look for simple numeric answers or short responses
+                lines = response.strip().split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith('{') and not line.startswith('"'):
+                        # Try to find a simple answer
+                        if len(line) < 50 and any(char.isdigit() for char in line):
+                            return AgentResult(
+                                status=AgentStatus.COMPLETE,
+                                output=line,
+                                metadata={"task_type": task_type.name}
+                            )
+
                 return AgentResult(
                     status=AgentStatus.COMPLETE,
                     output=response.strip(),
                     metadata={"task_type": task_type.name}
                 )
             else:
+                # For complex tasks, return the raw response
                 return AgentResult(
                     status=AgentStatus.COMPLETE,
-                    output=response,
-                    metadata={"task_type": task_type.name}
+                    output=response.strip(),
+                    metadata={"task_type": task_type.name, "parse_error": str(e)}
                 )
 
     async def _fallback_think(self, prompt: str, context: AgentContext) -> AgentResult:
