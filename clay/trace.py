@@ -1,6 +1,7 @@
 """Comprehensive tracing system for Clay execution."""
 
 import json
+import os
 import time
 import threading
 import traceback
@@ -220,7 +221,11 @@ def trace_method(component: str = None):
 def save_trace_file(session_id: str = None, output_dir: Path = None) -> Path:
     """Save trace to file and return the filepath."""
     if output_dir is None:
-        output_dir = Path.cwd() / "_traces"
+        # Use current working directory - for tests this will be the isolated test directory
+        output_dir = Path.cwd() / "traces"
+
+    # Ensure output directory exists
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"clay_trace_{timestamp}"

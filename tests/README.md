@@ -42,11 +42,11 @@ The integration tests are organized into focused modules using pure pytest funct
 
 ### Test Helper
 
-- **Helper Utilities** (`helpers.py`)
-  - `IntegrationTestHelper` class for session management
-  - Temporary directory creation and cleanup
-  - Response quality assertions
-  - File creation validation
+Tests use automatic fixtures for session management and cleanup:
+- Automatic test directory creation in `_test/<test_name>/`
+- Session creation utilities
+- Response quality assertions
+- Automatic cleanup after tests
 
 ## Running Tests
 
@@ -187,11 +187,12 @@ Tests use pytest markers for organization:
 
 When adding new tests:
 
-1. Use the `IntegrationTestHelper` class for common operations
-2. Create temporary directories for file operations
+1. Use `run_clay_command(query)` helper function from `test_helpers.py`
+2. Tests automatically get isolated directories in `_test/<test_name>/`
 3. Use realistic expectations (models may not always create files)
 4. Add appropriate markers (`@pytest.mark.slow` for long tests)
-5. Clean up resources in test teardown
+5. No manual setup or cleanup needed - handled automatically by fixtures
+6. Tests use Clay's default configuration and CLI interface
 
 ### Performance Considerations
 

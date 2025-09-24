@@ -2,16 +2,12 @@
 
 import pytest
 from pathlib import Path
-from tests.integration.helpers import IntegrationTestHelper
+from tests.integration.test_helpers import run_clay_command, assert_response_quality
 
 
 @pytest.mark.asyncio
 async def test_simple_function_creation():
     """Test creating simple functions."""
-    helper = IntegrationTestHelper()
-    temp_dir = helper.create_temp_project()
-    session = await helper.create_session(temp_dir)
-
     test_cases = [
         {
             "query": "write a function to calculate factorial",
@@ -28,11 +24,11 @@ async def test_simple_function_creation():
     ]
 
     for test_case in test_cases:
-        response = await session.process_message(test_case["query"])
-        helper.assert_response_quality(response, min_length=20)
+        response = await run_clay_command(test_case["query"])
+        assert_response_quality(response, min_length=20)
 
         # Check if files were created (may not always happen in simple mode)
-        created_files = list(temp_dir.glob("*.py"))
+        created_files = list(Path.cwd().glob("*.py"))
         if created_files:
             # If files were created, verify content
             for file_path in created_files:
@@ -41,16 +37,10 @@ async def test_simple_function_creation():
                 found_content = any(keyword in content for keyword in test_case["expected_content"])
                 assert found_content, f"Expected content not found in {file_path}"
 
-    helper.cleanup()
-
 
 @pytest.mark.asyncio
 async def test_code_explanation():
     """Test code explanation capabilities."""
-    helper = IntegrationTestHelper()
-    temp_dir = helper.create_temp_project()
-    session = await helper.create_session(temp_dir)
-
     # Create a sample Python file
     sample_code = '''
 def quicksort(arr):
@@ -62,7 +52,7 @@ def quicksort(arr):
     right = [x for x in arr if x > pivot]
     return quicksort(left) + middle + quicksort(right)
 '''
-    code_file = temp_dir / "quicksort.py"
+    code_file = Path("quicksort.py")
     code_file.write_text(sample_code)
 
     test_cases = [
@@ -72,19 +62,13 @@ def quicksort(arr):
     ]
 
     for query, expected_keywords in test_cases:
-        response = await session.process_message(query)
-        helper.assert_response_quality(response, expected_keywords, min_length=50)
-
-    helper.cleanup()
+        response = await run_clay_command(query)
+        assert_response_quality(response, expected_keywords, min_length=50)
 
 
 @pytest.mark.asyncio
 async def test_algorithm_implementation():
     """Test implementation of common algorithms."""
-    helper = IntegrationTestHelper()
-    temp_dir = helper.create_temp_project()
-    session = await helper.create_session(temp_dir)
-
     algorithms = [
         "implement binary search",
         "write a merge sort function",
@@ -93,11 +77,11 @@ async def test_algorithm_implementation():
     ]
 
     for algorithm_request in algorithms:
-        response = await session.process_message(algorithm_request)
-        helper.assert_response_quality(response, ["function", "def"], min_length=30)
+        response = await run_clay_command(algorithm_request)
+        assert_response_quality(response, ["function", "def"], min_length=30)
 
         # Check if any Python files were created
-        py_files = list(temp_dir.glob("*.py"))
+        py_files = list(Path.cwd().glob("*.py"))
         if py_files:
             # Verify that created files contain actual code
             for file_path in py_files:
@@ -105,16 +89,10 @@ async def test_algorithm_implementation():
                 assert "def " in content, f"Python file should contain function definition: {file_path}"
                 assert len(content.strip()) > 50, f"Code file should have substantial content: {file_path}"
 
-    helper.cleanup()
-
 
 @pytest.mark.asyncio
 async def test_code_debugging():
     """Test code debugging and fixing capabilities."""
-    helper = IntegrationTestHelper()
-    temp_dir = helper.create_temp_project()
-    session = await helper.create_session(temp_dir)
-
     # Create a buggy Python file
     buggy_code = '''
 def fibonacci(n):
@@ -125,7 +103,7 @@ def fibonacci(n):
     else:
         return fibonacci(n-1) + fibonacci(n-2
 '''
-    buggy_file = temp_dir / "buggy_fibonacci.py"
+    buggy_file = Path("buggy_fibonacci.py")
     buggy_file.write_text(buggy_code)
 
     queries = [
@@ -135,20 +113,14 @@ def fibonacci(n):
     ]
 
     for query in queries:
-        response = await session.process_message(query)
+        response = await run_clay_command(query)
         # Should identify the issue
-        helper.assert_response_quality(response, ["error", "syntax", "missing"], min_length=20)
-
-    helper.cleanup()
+        assert_response_quality(response, ["error", "syntax", "missing"], min_length=20)
 
 
 @pytest.mark.asyncio
 async def test_code_optimization():
     """Test code optimization suggestions."""
-    helper = IntegrationTestHelper()
-    temp_dir = helper.create_temp_project()
-    session = await helper.create_session(temp_dir)
-
     # Create an inefficient implementation
     inefficient_code = '''
 def find_max(numbers):
@@ -159,7 +131,7 @@ def find_max(numbers):
                 max_num = numbers[j]
     return max_num
 '''
-    code_file = temp_dir / "inefficient.py"
+    code_file = Path("inefficient.py")
     code_file.write_text(inefficient_code)
 
     queries = [
@@ -169,19 +141,13 @@ def find_max(numbers):
     ]
 
     for query in queries:
-        response = await session.process_message(query)
-        helper.assert_response_quality(response, ["optimize", "improve", "efficient"], min_length=30)
-
-    helper.cleanup()
+        response = await run_clay_command(query)
+        assert_response_quality(response, ["optimize", "improve", "efficient"], min_length=30)
 
 
 @pytest.mark.asyncio
 async def test_class_creation():
     """Test creating Python classes."""
-    helper = IntegrationTestHelper()
-    temp_dir = helper.create_temp_project()
-    session = await helper.create_session(temp_dir)
-
     class_requests = [
         "create a simple Person class with name and age attributes",
         "implement a Stack class with push and pop methods",
@@ -189,26 +155,20 @@ async def test_class_creation():
     ]
 
     for request in class_requests:
-        response = await session.process_message(request)
-        helper.assert_response_quality(response, ["class"], min_length=30)
+        response = await run_clay_command(request)
+        assert_response_quality(response, ["class"], min_length=30)
 
         # Check if any Python files were created with class definitions
-        py_files = list(temp_dir.glob("*.py"))
+        py_files = list(Path.cwd().glob("*.py"))
         if py_files:
             for file_path in py_files:
                 content = file_path.read_text()
                 assert "class " in content, f"Should contain class definition: {file_path}"
 
-    helper.cleanup()
-
 
 @pytest.mark.asyncio
 async def test_unit_test_creation():
     """Test creating unit tests for code."""
-    helper = IntegrationTestHelper()
-    temp_dir = helper.create_temp_project()
-    session = await helper.create_session(temp_dir)
-
     # Create a simple function to test
     function_code = '''
 def add_numbers(a, b):
@@ -219,7 +179,7 @@ def multiply(x, y):
     """Multiply two numbers."""
     return x * y
 '''
-    code_file = temp_dir / "math_utils.py"
+    code_file = Path("math_utils.py")
     code_file.write_text(function_code)
 
     test_requests = [
@@ -229,7 +189,5 @@ def multiply(x, y):
     ]
 
     for request in test_requests:
-        response = await session.process_message(request)
-        helper.assert_response_quality(response, ["test", "assert"], min_length=30)
-
-    helper.cleanup()
+        response = await run_clay_command(request)
+        assert_response_quality(response, ["test", "assert"], min_length=30)

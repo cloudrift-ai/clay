@@ -14,6 +14,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Run specific test module**: `pytest tests/test_tools.py`
 - **Run with coverage**: `pytest --cov=clay`
 - **Run async tests**: Tests use `pytest-asyncio` for async functionality
+- **Run tests in parallel**: `pytest -n 4` (using pytest-xdist with 4 workers)
+- **Run integration tests in parallel**: `pytest tests/integration/ -n 2` (recommended for integration tests)
+- **Test artifacts**: Test files and traces are saved in `_test/<test_name>` for inspection
+- **Parallel test isolation**: Each test runs in its own isolated `_test/<test_name>` directory
+- **Test setup**: Use `test_helper` fixture from `conftest.py` for test setup (see `_test/MIGRATION.md`)
 
 ### Linting and Type Checking
 - **Format code**: `black clay/`
