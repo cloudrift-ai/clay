@@ -8,10 +8,7 @@ from typing import Dict, Any, Optional
 from .fsm import ControlLoopOrchestrator
 from .context_engine import ContextEngine
 from .patch_engine import PatchEngine
-from .test_runner import TestRunner
 from .policy_engine import PolicyEngine, PolicyConfig
-from .model_adapter import ModelAdapter
-from .sandbox_mock import MockSandboxManager
 
 logger = logging.getLogger(__name__)
 
@@ -27,19 +24,14 @@ class ClayOrchestrator:
         # Initialize all components
         self.context_engine = ContextEngine(working_dir)
         self.patch_engine = PatchEngine(working_dir)
-        self.test_runner = TestRunner(working_dir)
         self.policy_engine = PolicyEngine(policy_config)
-        self.model_adapter = ModelAdapter(agent)
-        self.sandbox_manager = MockSandboxManager(working_dir)
 
         # Initialize the FSM orchestrator
         self.fsm_orchestrator = ControlLoopOrchestrator(
             context_engine=self.context_engine,
             patch_engine=self.patch_engine,
-            sandbox_manager=self.sandbox_manager,
-            test_runner=self.test_runner,
             policy_engine=self.policy_engine,
-            model_agent=self.model_adapter
+            model_agent=self.agent
         )
 
         logger.info(f"Initialized Clay orchestrator for {working_dir}")
