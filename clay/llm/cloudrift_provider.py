@@ -19,7 +19,7 @@ class CloudriftProvider(LLMProvider):
         super().__init__(api_key, model)
         self.base_url = "https://inference.cloudrift.ai/v1"
 
-    @trace_operation("LLM", "api_call")
+    @trace_operation
     async def complete(
         self,
         system_prompt: str,

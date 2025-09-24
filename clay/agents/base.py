@@ -61,7 +61,7 @@ class Agent(ABC):
         """Process a prompt and decide on actions."""
         pass
 
-    @trace_operation("Agent", "execute_tool")
+    @trace_operation
     async def execute_tool(self, tool_name: str, parameters: Dict[str, Any]) -> ToolResult:
         """Execute a tool with given parameters."""
         if tool_name not in self.tools:
@@ -106,7 +106,7 @@ class Agent(ABC):
 
         return result
 
-    @trace_operation("Agent", "run")
+    @trace_operation
     async def run(self, prompt: str, context: AgentContext) -> AgentResult:
         """Run the agent with a prompt."""
         trace_agent_action(self.name, "started", prompt_length=len(prompt))

@@ -128,7 +128,7 @@ class ClaySession:
             working_dir=self.working_dir
         )
 
-    @trace_operation("ClaySession", "process_message")
+    @trace_operation
     async def process_message(self, message: str) -> str:
         """Process a user message and return response."""
         trace_event("Message", "received",
@@ -147,7 +147,7 @@ class ClaySession:
             return await self._process_with_agents(message)
 
 
-    @trace_operation("ClaySession", "orchestrator_processing")
+    @trace_operation
     async def _process_with_orchestrator(self, message: str) -> str:
         """Process message using the Clay orchestrator."""
         trace_event("Processing", "using_orchestrator")
@@ -213,7 +213,7 @@ class ClaySession:
         self.conversation_history.append({"role": "assistant", "content": response})
         return response
 
-    @trace_operation("ClaySession", "agent_processing")
+    @trace_operation
     async def _process_with_agents(self, message: str) -> str:
         """Process message using the legacy agent system."""
         trace_event("Processing", "using_agents")
@@ -553,7 +553,7 @@ async def run_analysis_mode(session: ClaySession, output_format: str):
             console.print(f"[red]❌ Analysis failed: {result.get('error', 'Unknown error')}[/red]")
 
 
-@trace_operation("CLI", "headless_mode")
+@trace_operation
 async def run_headless_mode(session: ClaySession, query: Optional[str], piped_input: Optional[str], output_format: str):
     """Run in headless mode - process query and exit."""
     import json

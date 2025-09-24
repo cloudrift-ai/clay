@@ -31,7 +31,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Type check**: `source venv/bin/activate && mypy clay/`
 
 ### Tracing and Analysis
-- **Enable tracing**: Use `@trace_operation("Component", "operation_name")` decorator on functions
+- **Enable tracing**: Use `@trace_operation` decorator on functions (auto-detects component and operation)
 - **Method tracing**: Use `@trace_method()` decorator on class methods (auto-detects component name)
 - **Trace Clay execution**: All Clay CLI commands automatically generate traces in `traces/` directory
 - **Trace test runs**: All pytest executions automatically save traces to `_test/<test_name>/traces/`
@@ -87,7 +87,7 @@ Clay is an agentic coding system with a modular architecture:
 - **Comprehensive execution tracing** with nested call stack reproduction
 - **Automatic tracing** for all Clay CLI commands and test executions
 - **Thread-safe** concurrent execution support
-- **Decorator-based tracing** using `@trace_operation()` and `@trace_method()`
+- **Decorator-based tracing** using `@trace_operation` and `@trace_method()` (auto-detect components)
 - **Automatic context capture**: file paths, line numbers, function names, and simple argument values
 - **JSON output** with hierarchical structure showing complete call trees
 - **Error handling** with full stack traces preserved in nested structure
@@ -103,7 +103,7 @@ Use Clay's tracing system to analyze program behavior, debug execution flow, and
 ```python
 from clay.trace import trace_operation, trace_method, save_trace_file, set_session_id
 
-@trace_operation("Calculator", "add")
+@trace_operation
 def add_numbers(a: int, b: int) -> int:
     return a + b
 

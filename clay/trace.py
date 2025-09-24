@@ -13,30 +13,6 @@ from dataclasses import dataclass
 from functools import wraps
 
 
-def _execute_with_tracing(func, component: str, operation: str, details: Dict[str, Any], args, kwargs, is_async: bool = False):
-    """Shared logic for executing functions with nested tracing."""
-    start_time = time.time()
-
-    # Start nested call tracking
-    nested_call = _trace_collector.start_nested_call(component, operation, details)
-
-    try:
-        if is_async:
-            result = func(*args, **kwargs)  # This should be awaited by caller
-        else:
-            result = func(*args, **kwargs)
-
-        # Record success
-        duration = time.time() - start_time
-        _trace_collector.end_nested_call(nested_call, duration)
-        return result
-
-    except Exception as e:
-        # Record error
-        duration = time.time() - start_time
-        _trace_collector.end_nested_call(nested_call, duration, str(e), traceback.format_exc())
-        raise
-
 
 def _get_caller_info(func):
     """Get file path, line number, and function name for a function."""
@@ -321,8 +297,11 @@ def trace_error(component: str, operation: str, error: Exception, **details):
     _trace_collector.end_nested_call(call, 0.0, str(error), traceback.format_exc())
 
 
-def trace_operation(component: str, operation: str, **details):
-    """Decorator for tracing operations with duration."""
+def trace_operation(func=None, **details):
+    """Decorator for tracing operations with duration.
+
+    Can be used as @trace_operation or @trace_operation(extra="data")
+    """
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -336,6 +315,19 @@ def trace_operation(component: str, operation: str, **details):
                 'arg_count': len(args),
                 'kwarg_count': len(kwargs)
             }
+
+            # Auto-detect component from module or class
+            component = func.__module__
+            if (args and hasattr(args[0], '__class__') and
+                not isinstance(args[0], (str, int, float, bool, type(None), list, tuple, dict)) and
+                hasattr(args[0].__class__, '__name__')):
+                # If first argument is 'self' (an object instance), use class name as component
+                component = args[0].__class__.__name__
+            elif '.' in component:
+                # Use last part of module path
+                component = component.split('.')[-1]
+
+            operation = func.__name__
 
             start_time = time.time()
             nested_call = _trace_collector.start_nested_call(component, operation, enhanced_details)
@@ -363,6 +355,19 @@ def trace_operation(component: str, operation: str, **details):
                 'kwarg_count': len(kwargs)
             }
 
+            # Auto-detect component from module or class
+            component = func.__module__
+            if (args and hasattr(args[0], '__class__') and
+                not isinstance(args[0], (str, int, float, bool, type(None), list, tuple, dict)) and
+                hasattr(args[0].__class__, '__name__')):
+                # If first argument is 'self' (an object instance), use class name as component
+                component = args[0].__class__.__name__
+            elif '.' in component:
+                # Use last part of module path
+                component = component.split('.')[-1]
+
+            operation = func.__name__
+
             start_time = time.time()
             nested_call = _trace_collector.start_nested_call(component, operation, enhanced_details)
 
@@ -383,7 +388,13 @@ def trace_operation(component: str, operation: str, **details):
         else:
             return wrapper
 
-    return decorator
+    # Handle both @trace_operation and @trace_operation() patterns
+    if func is None:
+        # Called with parentheses: @trace_operation() or @trace_operation(extra="data")
+        return decorator
+    else:
+        # Called without parentheses: @trace_operation
+        return decorator(func)
 
 
 def trace_method(component: str = None):

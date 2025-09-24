@@ -29,7 +29,7 @@ class BashTool(Tool):
             "required": ["command"]
         }
 
-    @trace_operation("Tool", "bash_execute")
+    @trace_operation
     async def execute(
         self,
         command: str,

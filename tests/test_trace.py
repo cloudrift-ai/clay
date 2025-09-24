@@ -252,7 +252,7 @@ class TestTraceDecorators:
     def test_trace_operation_sync(self):
         clear_trace()
 
-        @trace_operation("TestComp", "test_operation", extra="data")
+        @trace_operation
         def test_func(x, y):
             return x + y
 
@@ -263,9 +263,8 @@ class TestTraceDecorators:
         assert len(calls) == 1
 
         call = calls[0]
-        assert call.component == "TestComp"
-        assert call.operation == "test_operation"
-        assert call.details["extra"] == "data"
+        assert call.component == "test_trace"  # Auto-detected from module
+        assert call.operation == "test_func"  # Auto-detected from function name
         assert "args" in call.details
         assert call.duration is not None
         assert call.error is None
@@ -273,7 +272,7 @@ class TestTraceDecorators:
     def test_trace_operation_with_error(self):
         clear_trace()
 
-        @trace_operation("TestComp", "failing_op")
+        @trace_operation
         def failing_func():
             raise ValueError("Test error")
 
@@ -292,7 +291,7 @@ class TestTraceDecorators:
     async def test_trace_operation_async(self):
         clear_trace()
 
-        @trace_operation("AsyncComp", "async_op")
+        @trace_operation
         async def async_func(value):
             await asyncio.sleep(0.01)
             return value * 2
@@ -304,8 +303,8 @@ class TestTraceDecorators:
         assert len(calls) == 1
 
         call = calls[0]
-        assert call.component == "AsyncComp"
-        assert call.operation == "async_op"
+        assert call.component == "test_trace"  # Auto-detected from module
+        assert call.operation == "async_func"  # Auto-detected from function name
         assert call.duration > 0.01
         assert call.error is None
 
@@ -333,11 +332,11 @@ class TestTraceDecorators:
     def test_nested_trace_operations(self):
         clear_trace()
 
-        @trace_operation("Parent", "parent_op")
+        @trace_operation
         def parent_func():
             return child_func() + 10
 
-        @trace_operation("Child", "child_op")
+        @trace_operation
         def child_func():
             return 5
 
@@ -348,12 +347,12 @@ class TestTraceDecorators:
         assert len(calls) == 1
 
         parent_call = calls[0]
-        assert parent_call.component == "Parent"
+        assert parent_call.component == "test_trace"  # Auto-detected from module
         assert len(parent_call.children) == 1
 
         child_call = parent_call.children[0]
-        assert child_call.component == "Child"
-        assert child_call.operation == "child_op"
+        assert child_call.component == "test_trace"  # Auto-detected from module
+        assert child_call.operation == "child_func"  # Auto-detected from function name
 
 
 class TestTraceUtilityFunctions:
@@ -500,11 +499,11 @@ class TestComplexScenarios:
     async def test_mixed_sync_async_tracing(self):
         clear_trace()
 
-        @trace_operation("Sync", "sync_op")
+        @trace_operation
         def sync_func():
             return "sync_result"
 
-        @trace_operation("Async", "async_op")
+        @trace_operation
         async def async_func():
             # Call sync function from async context
             sync_result = sync_func()
@@ -518,24 +517,24 @@ class TestComplexScenarios:
         assert len(calls) == 1
 
         async_call = calls[0]
-        assert async_call.component == "Async"
+        assert async_call.component == "test_trace"  # Auto-detected from module
         assert len(async_call.children) == 1
 
         sync_call = async_call.children[0]
-        assert sync_call.component == "Sync"
+        assert sync_call.component == "test_trace"  # Auto-detected from module
 
     def test_deep_nesting(self):
         clear_trace()
 
-        @trace_operation("Level1", "op1")
+        @trace_operation
         def level1():
             return level2() + 1
 
-        @trace_operation("Level2", "op2")
+        @trace_operation
         def level2():
             return level3() + 1
 
-        @trace_operation("Level3", "op3")
+        @trace_operation
         def level3():
             return 1
 
@@ -547,25 +546,28 @@ class TestComplexScenarios:
 
         # Check nesting structure
         l1 = calls[0]
-        assert l1.component == "Level1"
+        assert l1.component == "test_trace"  # Auto-detected from module
+        assert l1.operation == "level1"  # Auto-detected from function name
         assert len(l1.children) == 1
 
         l2 = l1.children[0]
-        assert l2.component == "Level2"
+        assert l2.component == "test_trace"  # Auto-detected from module
+        assert l2.operation == "level2"  # Auto-detected from function name
         assert len(l2.children) == 1
 
         l3 = l2.children[0]
-        assert l3.component == "Level3"
+        assert l3.component == "test_trace"  # Auto-detected from module
+        assert l3.operation == "level3"  # Auto-detected from function name
         assert len(l3.children) == 0
 
     def test_error_propagation_in_nesting(self):
         clear_trace()
 
-        @trace_operation("Parent", "parent_op")
+        @trace_operation
         def parent_func():
             return child_func()
 
-        @trace_operation("Child", "child_op")
+        @trace_operation
         def child_func():
             raise RuntimeError("Child error")
 
@@ -590,7 +592,7 @@ class TestComplexScenarios:
 
         results = []
 
-        @trace_operation("Concurrent", "thread_op")
+        @trace_operation
         def thread_func(thread_id):
             time.sleep(0.01)  # Small delay to ensure overlap
             results.append(f"thread_{thread_id}")
@@ -611,8 +613,8 @@ class TestComplexScenarios:
         # Verify all threads were traced
         thread_ids = set()
         for call in calls:
-            assert call.component == "Concurrent"
-            assert call.operation == "thread_op"
+            assert call.component == "test_trace"  # Auto-detected from module
+            assert call.operation == "thread_func"  # Auto-detected from function name
             thread_ids.add(call.thread_id)
 
         # Should have 3 different thread IDs
