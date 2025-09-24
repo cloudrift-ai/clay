@@ -15,7 +15,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 
 from .agents import (
-    CodingAgent, ResearchAgent, FastCodingAgent,
+    CodingAgent, ResearchAgent,
     AgentOrchestrator, AgentContext, StreamingAgent, ProgressiveSession
 )
 from .config import get_config
@@ -108,7 +108,7 @@ class ClaySession:
 
         # Use traditional agents directly
         if self.fast_mode:
-            coding_agent = FastCodingAgent(self.llm_provider)
+            coding_agent = CodingAgent(self.llm_provider)
         else:
             coding_agent = CodingAgent(self.llm_provider)
 
