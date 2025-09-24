@@ -5,7 +5,6 @@ from pathlib import Path
 from tests.integration.test_helpers import run_clay_command, assert_response_quality
 
 
-@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_simple_web_server_project():
     """Test creating a simple web server project."""
@@ -26,7 +25,6 @@ async def test_simple_web_server_project():
             assert file_path.stat().st_size > 10, f"File {file_path} is too small"
 
 
-@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_calculator_project():
     """Test creating a calculator project."""
@@ -49,7 +47,6 @@ async def test_calculator_project():
             assert found_indicators >= 3, f"Calculator file {file_path} should contain calculator logic"
 
 
-@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_data_analysis_project():
     """Test creating a data analysis project."""
@@ -113,7 +110,6 @@ async def test_simple_game():
             assert found_indicators >= 3, f"Game should contain game logic: {file_path}"
 
 
-@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_rest_api_project():
     """Test creating a REST API project."""
@@ -160,7 +156,6 @@ async def test_utility_library():
             assert found_indicators >= 3, f"Utility library should contain multiple functions: {file_path}"
 
 
-@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_todo_app_project():
     """Test creating a todo application."""
@@ -185,7 +180,6 @@ async def test_todo_app_project():
                 assert found_indicators >= 3, f"Todo app should contain task management logic: {file_path}"
 
 
-@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_blog_generator():
     """Test creating a static blog generator."""

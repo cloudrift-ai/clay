@@ -102,17 +102,12 @@ pytest tests/integration/test_simple_queries.py::test_basic_math -v
 
 # Run tests matching pattern
 pytest tests/integration/ -k "math" -v
-
-# Run with markers
-pytest -m "not slow" tests/integration/ -v
 ```
 
 ### Test Configuration
 
 Tests use pytest markers for organization:
-- `@pytest.mark.integration`: Integration tests requiring API keys
-- `@pytest.mark.requires_api`: Tests that need API access
-- `@pytest.mark.slow`: Tests that may take >30 seconds
+- `@pytest.mark.asyncio`: Asynchronous test functions
 
 ## Expected Behavior
 
@@ -190,28 +185,26 @@ When adding new tests:
 1. Use `run_clay_command(query)` helper function from `test_helpers.py`
 2. Tests automatically get isolated directories in `_test/<test_name>/`
 3. Use realistic expectations (models may not always create files)
-4. Add appropriate markers (`@pytest.mark.slow` for long tests)
-5. No manual setup or cleanup needed - handled automatically by fixtures
-6. Tests use Clay's default configuration and CLI interface
+4. No manual setup or cleanup needed - handled automatically by fixtures
+5. Tests use Clay's default configuration and CLI interface
 
 ### Performance Considerations
 
 - Simple tests should complete in <10 seconds
 - Coding tests may take 10-30 seconds
 - Complex project tests may take 30+ seconds
-- Use `not slow` marker to skip long-running tests during development
 
 ## Integration with CI/CD
 
 For automated testing environments:
 
 ```bash
-# Quick test suite (no slow tests)
-pytest tests/integration/ -m "not slow" --tb=short
-
-# Full test suite
+# Run test suite
 pytest tests/integration/ -v --tb=short
 
 # Generate test report
 pytest tests/integration/ --html=test_report.html
+
+# Run tests in parallel
+pytest tests/integration/ -n 4 -v
 ```
