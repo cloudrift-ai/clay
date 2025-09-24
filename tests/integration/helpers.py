@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, Any, List
 import pytest
+import time
 
 from clay.cli import ClaySession
 from clay.config import get_config
@@ -16,19 +17,28 @@ class IntegrationTestHelper:
     def __init__(self):
         self.temp_dirs = []
         self.config = get_config()
+        self.project_root = Path(__file__).parent.parent.parent  # Navigate to project root
+        self.test_dir_root = self.project_root / "_test"
+
+        # Clean up any existing test directories at the beginning
+        if self.test_dir_root.exists():
+            shutil.rmtree(self.test_dir_root)
+        self.test_dir_root.mkdir(exist_ok=True)
 
     def create_temp_project(self, name: str = "test_project") -> Path:
-        """Create a temporary project directory."""
-        temp_dir = Path(tempfile.mkdtemp(prefix=f"clay_test_{name}_"))
+        """Create a temporary project directory in _test folder."""
+        # Create unique directory name with timestamp
+        timestamp = str(int(time.time() * 1000))  # milliseconds for uniqueness
+        dir_name = f"{name}_{timestamp}"
+        temp_dir = self.test_dir_root / dir_name
+        temp_dir.mkdir(parents=True, exist_ok=True)
         self.temp_dirs.append(temp_dir)
         return temp_dir
 
     def cleanup(self):
-        """Clean up temporary directories."""
-        for temp_dir in self.temp_dirs:
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir)
-        self.temp_dirs.clear()
+        """No-op cleanup for easier inspection - directories are cleaned at initialization."""
+        # Keep directories for inspection, they'll be cleaned up at the start of next test run
+        pass
 
     async def create_session(self, working_dir: Path = None) -> ClaySession:
         """Create a Clay session for testing."""
