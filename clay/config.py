@@ -35,7 +35,7 @@ class ClayConfig:
                 'max_tokens': 100000
             },
             'models': {
-                'multi_model_routing': True,
+                'multi_model_routing': False,
                 'task_types': {
                     'simple_reasoning': {
                         'preferred_providers': ['cloudrift', 'openai', 'anthropic'],
@@ -186,7 +186,7 @@ class ClayConfig:
 
     def is_multi_model_routing_enabled(self) -> bool:
         """Check if multi-model routing is enabled."""
-        return self.get_models_config().get('multi_model_routing', True)
+        return False  # Simplified to always use single model
 
     def get_task_type_config(self, task_type: str) -> Dict[str, Any]:
         """Get configuration for a specific task type."""

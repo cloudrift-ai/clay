@@ -18,7 +18,6 @@ from .agents import (
     CodingAgent, ResearchAgent, FastCodingAgent,
     AgentOrchestrator, AgentContext, StreamingAgent, ProgressiveSession
 )
-from .agents.smart_agent import SmartAgent
 from .config import get_config
 from .tools import (
     ReadTool, WriteTool, EditTool, GlobTool,
@@ -107,41 +106,7 @@ class ClaySession:
         """Initialize and configure agents."""
         config = get_config()
 
-        # Use SmartAgent with multi-model routing if enabled
-        if config.is_multi_model_routing_enabled():
-            # Get API keys for all providers
-            api_keys = {}
-            for provider in ['cloudrift', 'anthropic', 'openai']:
-                key, _ = config.get_provider_credentials(provider)
-                if key:
-                    api_keys[provider] = key
-
-            if api_keys:  # Only use smart agent if we have API keys
-                coding_agent = SmartAgent(api_keys, "coding_agent")
-                coding_agent.register_tools([
-                    ReadTool(),
-                    WriteTool(),
-                    EditTool(),
-                    GlobTool(),
-                    BashTool(),
-                    GrepTool(),
-                    SearchTool()
-                ])
-
-                research_agent = SmartAgent(api_keys, "research_agent")
-                research_agent.register_tools([
-                    GrepTool(),
-                    SearchTool(),
-                    WebFetchTool(),
-                    WebSearchTool()
-                ])
-
-                self.agent_orchestrator.register_agent(coding_agent)
-                self.agent_orchestrator.register_agent(research_agent)
-                self.primary_agent = coding_agent
-                return
-
-        # Fallback to traditional agents
+        # Use traditional agents directly
         if self.fast_mode:
             coding_agent = FastCodingAgent(self.llm_provider)
         else:
@@ -946,28 +911,35 @@ def config(global_config: bool, local_config: bool, show: bool, show_models: boo
         return
 
     if show_models:
-        # Show model routing information
-        console.print("\n[bold]Multi-Model System:[/bold]")
+        # Show current model information
+        console.print("\n[bold]Traditional Agent System:[/bold]")
 
-        # Create a smart agent to get model info
         try:
-            smart_agent = SmartAgent()
-            model_info = smart_agent.get_model_info()
+            config = get_config()
 
-            console.print(f"\n[blue]Multi-Model Routing:[/blue] {'✓ Enabled' if model_info['multi_model_enabled'] else '✗ Disabled'}")
+            # Show LLM provider information
+            console.print("\n[green]LLM Configuration:[/green]")
 
-            console.print("\n[green]Task Types:[/green]")
-            for task_type, description in model_info['task_types'].items():
-                console.print(f"  • [cyan]{task_type}[/cyan]: {description}")
+            # Try to get provider info from config
+            providers = ['cloudrift', 'anthropic', 'openai']
+            active_providers = []
 
-            console.print("\n[green]Available Models by Task Type:[/green]")
-            for task_type, models in model_info['available_models'].items():
-                console.print(f"\n  [cyan]{task_type.name}:[/cyan]")
-                if models:
-                    for model in models:
-                        console.print(f"    • {model}")
-                else:
-                    console.print("    • [yellow]No models available (missing API keys)[/yellow]")
+            for provider in providers:
+                try:
+                    api_key, model = config.get_provider_credentials(provider)
+                    if api_key:
+                        console.print(f"  ✓ [cyan]{provider}[/cyan]: {model or 'default model'}")
+                        active_providers.append(provider)
+                    else:
+                        console.print(f"  ✗ [dim]{provider}[/dim]: No API key configured")
+                except:
+                    console.print(f"  ✗ [dim]{provider}[/dim]: Configuration error")
+
+            if active_providers:
+                console.print(f"\n[blue]Active Providers:[/blue] {', '.join(active_providers)}")
+                console.print(f"[blue]Multi-Model Routing:[/blue] ✗ Disabled (using traditional agents)")
+            else:
+                console.print("\n[yellow]Warning: No API keys configured[/yellow]")
 
         except Exception as e:
             console.print(f"[red]Error showing model info: {e}[/red]")
