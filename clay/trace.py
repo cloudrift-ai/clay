@@ -283,19 +283,6 @@ def get_trace_collector() -> TraceCollector:
     return _trace_collector
 
 
-def trace_event(component: str, operation: str, **details):
-    """Record a simple trace event (compatibility function)."""
-    # For simple events, create a minimal nested call with zero duration
-    call = _trace_collector.start_nested_call(component, operation, details)
-    _trace_collector.end_nested_call(call, 0.0)
-
-
-def trace_error(component: str, operation: str, error: Exception, **details):
-    """Record a trace error event (compatibility function)."""
-    # For error events, create a minimal nested call with error
-    call = _trace_collector.start_nested_call(component, operation, details)
-    _trace_collector.end_nested_call(call, 0.0, str(error), traceback.format_exc())
-
 
 def trace_operation(func=None, **details):
     """Decorator for tracing operations with duration.
@@ -524,26 +511,3 @@ def set_session_id(session_id: str):
     _trace_collector.set_session_id(session_id)
 
 
-# Utility functions for common trace patterns
-def trace_llm_call(provider: str, model: str, prompt_length: int, **details):
-    """Trace LLM API call."""
-    trace_event("LLM", "api_call",
-                provider=provider,
-                model=model,
-                prompt_length=prompt_length,
-                **details)
-
-
-def trace_tool_execution(tool_name: str, **details):
-    """Trace tool execution."""
-    trace_event("Tool", tool_name, **details)
-
-
-def trace_agent_action(agent_name: str, action: str, **details):
-    """Trace agent action."""
-    trace_event("Agent", action, agent=agent_name, **details)
-
-
-def trace_file_operation(operation: str, filepath: str, **details):
-    """Trace file operations."""
-    trace_event("FileSystem", operation, filepath=filepath, **details)

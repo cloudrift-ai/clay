@@ -26,7 +26,7 @@ from .tools import (
 from .llm import create_llm_provider, get_default_provider
 from .orchestrator import ClayOrchestrator
 from .trace import (
-    trace_operation, trace_event, trace_error,
+    trace_operation,
     save_trace_file, set_session_id
 )
 
@@ -39,10 +39,6 @@ class ClaySession:
 
     def __init__(self, llm_provider=None, working_dir: str = ".", fast_mode: bool = False, session_id: Optional[str] = None,
                  use_orchestrator: bool = True):
-        trace_event("ClaySession", "initialization_start",
-                   working_dir=str(working_dir),
-                   fast_mode=fast_mode,
-                   use_orchestrator=use_orchestrator)
 
         self.llm_provider = llm_provider or get_default_provider()
         self.working_dir = Path(working_dir).resolve()
@@ -62,7 +58,6 @@ class ClaySession:
 
         # Set trace session ID
         set_session_id(self.session_id)
-        trace_event("Session", "created", session_id=self.session_id)
 
         # New Claude Code compatible options
         self.allowed_tools = None
@@ -77,14 +72,11 @@ class ClaySession:
         if self.use_orchestrator and self.llm_provider:
             try:
                 self.setup_clay_orchestrator()
-                trace_event("ClaySession", "orchestrator_initialized")
             except Exception as e:
-                trace_error("ClaySession", "orchestrator_setup_failed", e)
                 console.print(f"[yellow]Warning: Failed to initialize Clay orchestrator: {e}[/yellow]")
                 console.print("[yellow]Falling back to legacy agent system[/yellow]")
                 self.use_orchestrator = False
 
-        trace_event("ClaySession", "initialization_complete")
 
 
     def setup_agents(self):
@@ -131,26 +123,21 @@ class ClaySession:
     @trace_operation
     async def process_message(self, message: str) -> str:
         """Process a user message and return response."""
-        trace_event("Message", "received",
-                   length=len(message),
-                   preview=message[:100])
+        # Message received
 
         self.conversation_history.append({"role": "user", "content": message})
 
         # Always use orchestrator if available - it will determine complexity internally
         if self.use_orchestrator and self.clay_orchestrator:
-            trace_event("TaskRouting", "using_orchestrator")
             return await self._process_with_orchestrator(message)
         else:
             # Fallback to agents if orchestrator not available
-            trace_event("TaskRouting", "using_agents_fallback")
             return await self._process_with_agents(message)
 
 
     @trace_operation
     async def _process_with_orchestrator(self, message: str) -> str:
         """Process message using the Clay orchestrator."""
-        trace_event("Processing", "using_orchestrator")
 
         # Check if we're in headless mode (no TTY)
         import sys
@@ -173,7 +160,6 @@ class ClaySession:
                 task = None
 
             try:
-                trace_event("Orchestrator", "task_started")
 
                 # Extract constraints from message if any
                 constraints = {}
@@ -182,9 +168,6 @@ class ClaySession:
 
                 result = await self.clay_orchestrator.process_task(message, constraints)
 
-                trace_event("Orchestrator", "task_completed",
-                           status=result.get("status"),
-                           duration=result.get("duration"))
 
                 if show_progress:
                     progress.update(task, completed=True)
@@ -205,7 +188,6 @@ class ClaySession:
                         response = f"Task completed with status: {result.get('status', 'unknown')}"
 
             except Exception as e:
-                trace_error("Orchestrator", "task_failed", e)
                 if show_progress:
                     progress.update(task, completed=True)
                 response = f"Orchestrator error: {str(e)}"
@@ -216,7 +198,6 @@ class ClaySession:
     @trace_operation
     async def _process_with_agents(self, message: str) -> str:
         """Process message using the legacy agent system."""
-        trace_event("Processing", "using_agents")
 
         context = AgentContext(
             working_directory=str(self.working_dir),
@@ -230,8 +211,6 @@ class ClaySession:
             context.metadata["append_system_prompt"] = self.append_system_prompt
 
         agent_name = self.determine_agent(message)
-        trace_event("AgentSelection", "determined",
-                   selected_agent=agent_name)
 
         with Progress(
             SpinnerColumn(),
@@ -247,22 +226,14 @@ class ClaySession:
                 agent_name=agent_name
             )
 
-            trace_event("AgentTask", "created",
-                       task_id=task_id,
-                       agent_name=agent_name)
 
             await self.agent_orchestrator.submit_task(agent_task)
             result = await self.agent_orchestrator.run_task(agent_task, context)
 
-            trace_event("AgentTask", "completed",
-                       task_id=task_id,
-                       has_error=bool(result.error),
-                       output_length=len(result.output or ""))
 
             progress.update(task, completed=True)
 
         if result.error:
-            trace_error("AgentTask", "execution_error", Exception(result.error))
             response = f"Error: {result.error}"
         else:
             # Try to provide meaningful response based on result content
@@ -572,11 +543,9 @@ async def run_headless_mode(session: ClaySession, query: Optional[str], piped_in
         console.print("[red]Error: No input provided for headless mode[/red]")
         return
 
-    trace_event("CLI", "headless_query", prompt_length=len(prompt))
 
     response = await session.process_message(prompt)
 
-    trace_event("CLI", "headless_response", response_length=len(response))
 
     if output_format == "json":
         output = {"response": response, "status": "success"}
@@ -615,7 +584,6 @@ async def run_interactive_mode(session: ClaySession, initial_query: Optional[str
         response = await session.process_message(initial_query)
         console.print(Markdown(response))
 
-    trace_event("CLI", "interactive_started")
 
     while True:
         try:
@@ -625,7 +593,6 @@ async def run_interactive_mode(session: ClaySession, initial_query: Optional[str
             )
 
             if user_input.lower() in ["exit", "quit"]:
-                trace_event("CLI", "interactive_exiting", exit_command=user_input.lower())
                 console.print("[cyan]Goodbye![/cyan]")
                 break
             elif user_input.lower() == "help":
@@ -635,15 +602,12 @@ async def run_interactive_mode(session: ClaySession, initial_query: Optional[str
                 console.clear()
                 continue
 
-            trace_event("CLI", "interactive_query", query_length=len(user_input))
             response = await session.process_message(user_input)
             console.print(Markdown(response))
 
         except KeyboardInterrupt:
-            trace_event("CLI", "keyboard_interrupt")
             console.print("\n[cyan]Use 'exit' to quit[/cyan]")
         except Exception as e:
-            trace_error("CLI", "interactive_error", e)
             console.print(f"[red]Error: {e}[/red]")
 
     # Save trace file when exiting interactive mode

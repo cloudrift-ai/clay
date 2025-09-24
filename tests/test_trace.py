@@ -15,12 +15,6 @@ from clay.trace import (
     NestedTraceCall,
     trace_operation,
     trace_method,
-    trace_event,
-    trace_error,
-    trace_llm_call,
-    trace_tool_execution,
-    trace_agent_action,
-    trace_file_operation,
     get_trace_collector,
     save_trace_file,
     clear_trace,
@@ -358,86 +352,7 @@ class TestTraceDecorators:
 class TestTraceUtilityFunctions:
     """Tests for utility tracing functions."""
 
-    def test_trace_event(self):
-        clear_trace()
-        trace_event("TestComp", "test_event", key="value")
-
-        calls = get_trace_collector().get_nested_calls()
-        assert len(calls) == 1
-
-        call = calls[0]
-        assert call.component == "TestComp"
-        assert call.operation == "test_event"
-        assert call.details["key"] == "value"
-        assert call.duration == 0.0
-
-    def test_trace_error_function(self):
-        clear_trace()
-        error = ValueError("Test error")
-        trace_error("TestComp", "error_op", error, context="test")
-
-        calls = get_trace_collector().get_nested_calls()
-        assert len(calls) == 1
-
-        call = calls[0]
-        assert call.component == "TestComp"
-        assert call.operation == "error_op"
-        assert call.error == "Test error"
-        assert call.details["context"] == "test"
-
-    def test_trace_llm_call(self):
-        clear_trace()
-        trace_llm_call("openai", "gpt-4", 1000, temperature=0.7)
-
-        calls = get_trace_collector().get_nested_calls()
-        assert len(calls) == 1
-
-        call = calls[0]
-        assert call.component == "LLM"
-        assert call.operation == "api_call"
-        assert call.details["provider"] == "openai"
-        assert call.details["model"] == "gpt-4"
-        assert call.details["prompt_length"] == 1000
-        assert call.details["temperature"] == 0.7
-
-    def test_trace_tool_execution(self):
-        clear_trace()
-        trace_tool_execution("file_tool", action="read", file="test.py")
-
-        calls = get_trace_collector().get_nested_calls()
-        assert len(calls) == 1
-
-        call = calls[0]
-        assert call.component == "Tool"
-        assert call.operation == "file_tool"
-        assert call.details["action"] == "read"
-        assert call.details["file"] == "test.py"
-
-    def test_trace_agent_action(self):
-        clear_trace()
-        trace_agent_action("coding_agent", "generate_code", task="create function")
-
-        calls = get_trace_collector().get_nested_calls()
-        assert len(calls) == 1
-
-        call = calls[0]
-        assert call.component == "Agent"
-        assert call.operation == "generate_code"
-        assert call.details["agent"] == "coding_agent"
-        assert call.details["task"] == "create function"
-
-    def test_trace_file_operation(self):
-        clear_trace()
-        trace_file_operation("write", "/path/to/file.py", size=1024)
-
-        calls = get_trace_collector().get_nested_calls()
-        assert len(calls) == 1
-
-        call = calls[0]
-        assert call.component == "FileSystem"
-        assert call.operation == "write"
-        assert call.details["filepath"] == "/path/to/file.py"
-        assert call.details["size"] == 1024
+    # Tests for removed trace functions have been removed
 
 
 class TestTraceSerialization:
@@ -447,8 +362,11 @@ class TestTraceSerialization:
         clear_trace()
         set_session_id("test_session")
 
-        # Create some trace data
-        trace_event("TestComp", "test_op", data="test")
+        # Create some trace data by calling a traced function
+        @trace_operation
+        def test_func():
+            return "test"
+        test_func()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir)
@@ -467,7 +385,7 @@ class TestTraceSerialization:
             assert "end_time" in data
             assert "call_stack" in data
             assert len(data["call_stack"]) == 1
-            assert data["call_stack"][0]["component"] == "TestComp"
+            assert data["call_stack"][0]["component"] == "test_trace"  # Auto-detected from module
 
     def test_collector_save_to_file(self):
         collector = TraceCollector()

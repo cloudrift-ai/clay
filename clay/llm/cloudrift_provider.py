@@ -6,7 +6,7 @@ from typing import Optional, List, Dict, Any
 import aiohttp
 
 from .base import LLMProvider, LLMResponse
-from ..trace import trace_operation, trace_llm_call, trace_error
+from ..trace import trace_operation
 
 
 class CloudriftProvider(LLMProvider):
@@ -29,9 +29,6 @@ class CloudriftProvider(LLMProvider):
         **kwargs
     ) -> LLMResponse:
         """Get completion from Cloudrift."""
-        trace_llm_call("cloudrift", self.model, len(system_prompt) + len(user_prompt),
-                      temperature=temperature or self.default_temperature,
-                      max_tokens=max_tokens or self.default_max_tokens)
 
         messages = self.build_messages(system_prompt, user_prompt, kwargs.get("history"))
 
@@ -57,9 +54,6 @@ class CloudriftProvider(LLMProvider):
                     if response.status != 200:
                         error_text = await response.text()
                         error = Exception(f"Cloudrift API error: {error_text}")
-                        trace_error("LLM", "api_call_failed", error,
-                                   provider="cloudrift",
-                                   status_code=response.status)
                         raise error
 
                     result = await response.json()
@@ -71,15 +65,10 @@ class CloudriftProvider(LLMProvider):
                     )
 
                     # Log successful completion
-                    trace_llm_call("cloudrift", self.model, len(system_prompt) + len(user_prompt),
-                                  response_length=len(response_obj.content),
-                                  usage=result.get("usage"),
-                                  finish_reason=result["choices"][0].get("finish_reason"))
 
                     return response_obj
 
         except Exception as e:
-            trace_error("LLM", "api_call_exception", e, provider="cloudrift")
             raise
 
     async def stream_complete(

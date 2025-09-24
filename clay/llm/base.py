@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
-from ..trace import trace_operation, trace_llm_call
+from ..trace import trace_operation
 
 
 class LLMModel(Enum):

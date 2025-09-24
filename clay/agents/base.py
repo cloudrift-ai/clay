@@ -7,7 +7,7 @@ from enum import Enum
 import asyncio
 
 from ..tools.base import Tool, ToolResult, ToolStatus
-from ..trace import trace_operation, trace_event, trace_error, trace_agent_action
+from ..trace import trace_operation
 
 
 class AgentStatus(Enum):
@@ -69,10 +69,6 @@ class Agent(ABC):
 
         tool = self.tools[tool_name]
 
-        trace_event("Tool", "execution_started",
-                   agent=self.name,
-                   tool_name=tool_name,
-                   parameter_count=len(parameters))
 
         # Print tool execution status
         from rich.console import Console
@@ -98,19 +94,12 @@ class Agent(ABC):
 
         result = await tool.run(**parameters)
 
-        trace_event("Tool", "execution_completed",
-                   agent=self.name,
-                   tool_name=tool_name,
-                   success=(result.status == ToolStatus.SUCCESS),
-                   output_length=len(result.output or ""))
 
         return result
 
     @trace_operation
     async def run(self, prompt: str, context: AgentContext) -> AgentResult:
         """Run the agent with a prompt."""
-        trace_agent_action(self.name, "started", prompt_length=len(prompt))
-
         self.context = context
         self.status = AgentStatus.THINKING
 
@@ -122,12 +111,9 @@ class Agent(ABC):
         console.print(f"\n[bold blue]🤖 {self.name} Agent[/bold blue]: [italic]{display_prompt}[/italic]\n")
 
         try:
-            trace_agent_action(self.name, "thinking")
             result = await self.think(prompt, context)
 
             if result.tool_calls:
-                trace_agent_action(self.name, "executing_tools",
-                                 tool_count=len(result.tool_calls))
                 self.status = AgentStatus.RUNNING_TOOL
                 tool_results = []
 
@@ -144,13 +130,10 @@ class Agent(ABC):
                 result.metadata = {"tool_results": tool_results}
 
             self.status = AgentStatus.COMPLETE
-            trace_agent_action(self.name, "completed",
-                             output_length=len(result.output or ""))
             return result
 
         except Exception as e:
             self.status = AgentStatus.ERROR
-            trace_error("Agent", "execution_failed", e, agent_name=self.name)
             return AgentResult(
                 status=AgentStatus.ERROR,
                 error=str(e)

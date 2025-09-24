@@ -5,7 +5,7 @@ import os
 import subprocess
 from typing import Optional, Dict, Any
 from .base import Tool, ToolResult, ToolStatus
-from ..trace import trace_operation, trace_tool_execution, trace_error
+from ..trace import trace_operation
 
 
 class BashTool(Tool):
@@ -36,11 +36,6 @@ class BashTool(Tool):
         timeout: Optional[int] = None,
         working_dir: Optional[str] = None
     ) -> ToolResult:
-        trace_tool_execution("bash",
-                            command=command[:200],  # Limit command length in trace
-                            working_dir=working_dir,
-                            timeout=timeout or self.default_timeout)
-
         timeout = timeout or self.default_timeout
 
         try:
@@ -60,12 +55,6 @@ class BashTool(Tool):
 
                 output = stdout.decode('utf-8', errors='replace')
                 error = stderr.decode('utf-8', errors='replace')
-
-                # Trace the command execution result
-                trace_tool_execution("bash",
-                                    result="success" if process.returncode == 0 else "error",
-                                    return_code=process.returncode,
-                                    output_length=len(output))
 
                 # Print summary to console
                 from rich.console import Console
@@ -113,7 +102,6 @@ class BashTool(Tool):
                     )
 
             except asyncio.TimeoutError:
-                trace_tool_execution("bash", result="timeout", timeout=timeout)
                 process.terminate()
                 await process.wait()
                 return ToolResult(
@@ -122,7 +110,6 @@ class BashTool(Tool):
                 )
 
         except Exception as e:
-            trace_error("Tool", "bash_execute_error", e, command=command[:100])
             return ToolResult(
                 status=ToolStatus.ERROR,
                 error=f"Failed to execute command: {str(e)}"
