@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional
 
 from .fsm import ControlLoopOrchestrator
 from .context_engine import ContextEngine
+from ..agents.llm_agent import LLMAgent
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +23,14 @@ class ClayOrchestrator:
         # Initialize all components
         self.context_engine = ContextEngine(working_dir)
 
+        # Create dedicated LLM agent for general tasks
+        llm_agent = LLMAgent(agent.llm_provider if hasattr(agent, 'llm_provider') else None)
+
         # Initialize the FSM orchestrator
         self.fsm_orchestrator = ControlLoopOrchestrator(
             context_engine=self.context_engine,
-            model_agent=self.agent
+            model_agent=self.agent,
+            llm_agent=llm_agent
         )
 
         logger.info(f"Initialized Clay orchestrator for {working_dir}")

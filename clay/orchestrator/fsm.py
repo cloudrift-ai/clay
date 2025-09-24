@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 class OrchestratorState(Enum):
     """Strict FSM states for the control loop."""
+    ANALYZE = auto()     # Analyze task complexity to determine execution path
     INGEST = auto()      # Clone/checkout, detect stack, hydrate caches
     PLAN = auto()        # Model proposes stepwise plan
     EDIT = auto()        # Model proposes unified diff
@@ -40,7 +41,9 @@ class OrchestratorContext:
     constraints: Dict[str, Any] = field(default_factory=dict)
 
     # State data
-    current_state: OrchestratorState = OrchestratorState.INGEST
+    current_state: OrchestratorState = OrchestratorState.ANALYZE
+    is_complex_task: Optional[bool] = None
+    skip_to_edit: bool = False
     plan: Optional[Dict] = None
     proposed_diff: Optional[str] = None
     applied_patches: List[str] = field(default_factory=list)
@@ -70,19 +73,22 @@ class ControlLoopOrchestrator:
                  policy_engine=None,
                  patch_engine=None,
                  sandbox_manager=None,
-                 test_runner=None):
+                 test_runner=None,
+                 llm_agent=None):
         self.context_engine = context_engine
         self.patch_engine = patch_engine
         self.sandbox = sandbox_manager
         self.test_runner = test_runner
         self.policy = policy_engine
         self.model = model_agent
+        self.llm = llm_agent or model_agent  # Use LLM agent if provided, otherwise fallback to model_agent
 
         # Define state transitions
         self.transitions = self._define_transitions()
 
         # State handlers
         self.state_handlers = {
+            OrchestratorState.ANALYZE: self._handle_analyze,
             OrchestratorState.INGEST: self._handle_ingest,
             OrchestratorState.PLAN: self._handle_plan,
             OrchestratorState.EDIT: self._handle_edit,
@@ -95,6 +101,17 @@ class ControlLoopOrchestrator:
     def _define_transitions(self) -> List[StateTransition]:
         """Define valid state transitions and their conditions."""
         return [
+            # Analysis flow - determine complexity
+            StateTransition(
+                OrchestratorState.ANALYZE,
+                OrchestratorState.INGEST,
+                condition=lambda ctx: ctx.is_complex_task is True
+            ),
+            StateTransition(
+                OrchestratorState.ANALYZE,
+                OrchestratorState.EDIT,
+                condition=lambda ctx: ctx.is_complex_task is False
+            ),
             # Normal flow
             StateTransition(
                 OrchestratorState.INGEST,
@@ -217,6 +234,104 @@ class ControlLoopOrchestrator:
                     return transition.to_state
         return None
 
+    async def _handle_analyze(self, ctx: OrchestratorContext):
+        """ANALYZE state: Use LLM to determine task complexity."""
+        logger.info(f"Analyzing task complexity for: {ctx.goal[:100]}...")
+
+        # Create a prompt for the LLM to analyze task complexity
+        complexity_prompt = f"""Analyze if this task requires complex planning and multiple steps, or if it's a simple query/operation.
+
+Task: {ctx.goal}
+
+Consider these factors:
+1. Does it require creating/modifying multiple files?
+2. Does it need careful planning and coordination?
+3. Is it implementing a new feature or fixing a bug?
+4. Does it require running tests?
+5. Is it just reading/searching/explaining code?
+
+Simple tasks include:
+- Reading or showing file contents
+- Searching for text or patterns
+- Explaining existing code
+- Listing files or directories
+- Simple calculations or queries
+- Code analysis without changes
+
+Complex tasks include:
+- Implementing new features
+- Fixing bugs
+- Refactoring code
+- Creating new files/modules
+- Setting up configurations
+- Making systematic changes
+
+Respond with ONLY "COMPLEX" or "SIMPLE" followed by a brief reason (max 20 words).
+"""
+
+        # Use the LLM agent to analyze complexity
+        if self.llm:
+            try:
+                response = await self.llm.analyze_task_complexity(complexity_prompt)
+                # Parse the response
+                response_lower = response.lower().strip()
+
+                if response_lower.startswith("complex"):
+                    ctx.is_complex_task = True
+                    logger.info(f"Task classified as COMPLEX: {response}")
+                elif response_lower.startswith("simple"):
+                    ctx.is_complex_task = False
+                    ctx.skip_to_edit = True
+                    logger.info(f"Task classified as SIMPLE: {response}")
+                else:
+                    # Default to complex if uncertain
+                    ctx.is_complex_task = True
+                    logger.warning(f"Unclear classification, defaulting to COMPLEX. Response: {response}")
+
+                ctx.artifacts['task_complexity'] = 'complex' if ctx.is_complex_task else 'simple'
+                ctx.artifacts['complexity_reason'] = response
+
+            except Exception as e:
+                # On error, default to complex for safety
+                logger.error(f"Error analyzing task complexity: {e}")
+                ctx.is_complex_task = True
+                ctx.artifacts['task_complexity'] = 'complex'
+                ctx.artifacts['complexity_analysis_error'] = str(e)
+        else:
+            # No model available, use simple heuristics
+            message_lower = ctx.goal.lower()
+
+            simple_indicators = [
+                "read", "show", "find", "search", "grep", "list", "ls", "cat",
+                "what is", "how many", "explain", "describe", "analyze", "check",
+                "display", "print", "view", "see", "count", "summary", "summarize"
+            ]
+
+            complex_indicators = [
+                "implement", "create", "build", "add", "modify", "refactor",
+                "fix", "debug", "update", "write", "change", "develop",
+                "install", "setup", "configure", "deploy"
+            ]
+
+            # Check for simple indicators
+            if any(indicator in message_lower for indicator in simple_indicators):
+                ctx.is_complex_task = False
+                ctx.skip_to_edit = True
+                ctx.artifacts['task_complexity'] = 'simple'
+                ctx.artifacts['complexity_reason'] = 'Matched simple task indicators'
+            # Check for complex indicators
+            elif any(indicator in message_lower for indicator in complex_indicators):
+                ctx.is_complex_task = True
+                ctx.artifacts['task_complexity'] = 'complex'
+                ctx.artifacts['complexity_reason'] = 'Matched complex task indicators'
+            else:
+                # Default to complex
+                ctx.is_complex_task = True
+                ctx.artifacts['task_complexity'] = 'complex'
+                ctx.artifacts['complexity_reason'] = 'No clear indicators, defaulting to complex'
+
+            logger.info(f"Task classified as {ctx.artifacts['task_complexity'].upper()} (heuristic)")
+
     async def _handle_ingest(self, ctx: OrchestratorContext):
         """INGEST state: Setup working copy and detect stack."""
         # Clone/checkout if needed
@@ -234,7 +349,7 @@ class ControlLoopOrchestrator:
         # Hydrate caches
         await self.context_engine.index_repository(ctx.working_dir)
 
-        logger.info(f"Ingested repository: {stack_info}")
+        logger.info(f"Ingested repository: {ctx.artifacts['stack_info']}")
 
     async def _handle_plan(self, ctx: OrchestratorContext):
         """PLAN state: Model proposes stepwise plan."""
@@ -254,8 +369,8 @@ class ControlLoopOrchestrator:
             'guides': context_result.guides
         }
 
-        # Get plan from model
-        plan = await self.model.create_plan(
+        # Get plan from LLM
+        plan = await self.llm.create_plan(
             goal=ctx.goal,
             context=context,
             constraints=ctx.constraints
@@ -271,8 +386,29 @@ class ControlLoopOrchestrator:
         ctx.artifacts['plan'] = plan
 
     async def _handle_edit(self, ctx: OrchestratorContext):
-        """EDIT state: Model proposes unified diff."""
-        # Get context for editing
+        """EDIT state: Model proposes unified diff or handles simple queries."""
+        # For simple tasks that skip planning, handle directly
+        if ctx.skip_to_edit and not ctx.plan:
+            # Simple query - just get a direct response
+            if self.llm:
+                # For simple queries, directly ask the LLM
+                response = await self.llm.propose_patch(
+                    plan={"steps": ["Answer the query directly"], "description": ctx.goal},
+                    context={},
+                    previous_attempts=[]
+                )
+                ctx.proposed_diff = response
+                ctx.artifacts['response'] = response
+                ctx.artifacts['query_only'] = True
+                return
+            else:
+                # Fallback response when no model
+                ctx.proposed_diff = "Query processing not available"
+                ctx.artifacts['response'] = "Query processing not available"
+                ctx.artifacts['query_only'] = True
+                return
+
+        # Complex task - get context for editing
         context_result = await self.context_engine.retrieve(
             goal=ctx.goal,
             budget_tokens=min(15000, ctx.max_tokens // 2)
@@ -289,7 +425,7 @@ class ControlLoopOrchestrator:
         }
 
         # Generate unified diff
-        diff = await self.model.propose_patch(
+        diff = await self.llm.propose_patch(
             plan=ctx.plan,
             context=context,
             previous_attempts=ctx.applied_patches
@@ -369,8 +505,8 @@ class ControlLoopOrchestrator:
         else:
             failure_context = ctx.artifacts.get('format_lint_results', {})
 
-        # Get repair suggestion from model
-        repair = await self.model.suggest_repair(
+        # Get repair suggestion from LLM
+        repair = await self.llm.suggest_repair(
             failure_context=failure_context,
             previous_attempts=ctx.applied_patches,
             plan=ctx.plan

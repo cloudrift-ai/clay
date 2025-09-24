@@ -54,12 +54,3 @@ def auto_cleanup(request):
     except (OSError, FileNotFoundError):
         # Directory was deleted, just go to the original directory
         os.chdir(original_cwd)
-
-
-# Mark for parallel execution safety
-def pytest_configure(config):
-    """Configure pytest for parallel execution."""
-    # Add custom markers
-    config.addinivalue_line(
-        "markers", "parallel_safe: mark test as safe for parallel execution"
-    )

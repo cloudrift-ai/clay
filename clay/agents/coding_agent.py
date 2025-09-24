@@ -1,6 +1,6 @@
 """Coding-focused agent implementation."""
 
-from typing import Dict, Any, List, Optional
+from typing import Optional
 import json
 
 from .base import Agent, AgentResult, AgentContext, AgentStatus
@@ -30,6 +30,7 @@ class CodingAgent(Agent):
         )
 
         return self._parse_response(response.content)
+
 
     def _build_system_prompt(self, context: AgentContext) -> str:
         """Build the system prompt for the LLM."""

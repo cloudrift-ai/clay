@@ -137,56 +137,15 @@ class ClaySession:
 
         self.conversation_history.append({"role": "user", "content": message})
 
-        # Determine processing path
-        is_complex = self._is_complex_task(message)
-        use_orchestrator = self.use_orchestrator and self.clay_orchestrator and is_complex
-
-        trace_event("TaskRouting", "decision",
-                   is_complex_task=is_complex,
-                   will_use_orchestrator=use_orchestrator)
-
-        # Use orchestrator for complex tasks, agents for simple queries
-        if use_orchestrator:
+        # Always use orchestrator if available - it will determine complexity internally
+        if self.use_orchestrator and self.clay_orchestrator:
+            trace_event("TaskRouting", "using_orchestrator")
             return await self._process_with_orchestrator(message)
         else:
+            # Fallback to agents if orchestrator not available
+            trace_event("TaskRouting", "using_agents_fallback")
             return await self._process_with_agents(message)
 
-    def _is_complex_task(self, message: str) -> bool:
-        """Determine if this is a complex coding task that benefits from the orchestrator."""
-        complex_indicators = [
-            "implement", "create", "build", "add", "modify", "refactor",
-            "fix", "debug", "update", "write code", "change", "develop",
-            "write", "edit", "install", "setup", "configure", "deploy",
-            "tetris", "game"  # Specific complex examples
-        ]
-
-        simple_indicators = [
-            "read", "show", "find", "search", "grep", "list", "ls", "cat",
-            "what is", "how many", "explain", "describe", "analyze", "check",
-            "hello world", "simple", "display", "print", "view", "see",
-            "count", "summary", "summarize", "compare", "diff", "status"
-        ]
-
-        message_lower = message.lower()
-
-        # If it's clearly a simple query, use agents
-        if any(indicator in message_lower for indicator in simple_indicators):
-            return False
-
-        # Mathematical operations and simple queries
-        if any(pattern in message_lower for pattern in ["2+2", "what is", "calculate", "compute"]):
-            return False
-
-        # If it mentions files or code changes, use orchestrator
-        if any(indicator in message_lower for indicator in complex_indicators):
-            return True
-
-        # For planning requests, always use orchestrator
-        if "plan" in message_lower and ("step" in message_lower or "break" in message_lower):
-            return True
-
-        # Default to agents for ambiguous cases (safer for user experience)
-        return False
 
     @trace_operation("ClaySession", "orchestrator_processing")
     async def _process_with_orchestrator(self, message: str) -> str:
