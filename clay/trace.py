@@ -5,11 +5,146 @@ import os
 import time
 import threading
 import traceback
+import inspect
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from functools import wraps
+
+
+def _execute_with_tracing(func, component: str, operation: str, details: Dict[str, Any], args, kwargs, is_async: bool = False):
+    """Shared logic for executing functions with nested tracing."""
+    start_time = time.time()
+
+    # Start nested call tracking
+    nested_call = _trace_collector.start_nested_call(component, operation, details)
+
+    try:
+        if is_async:
+            result = func(*args, **kwargs)  # This should be awaited by caller
+        else:
+            result = func(*args, **kwargs)
+
+        # Record success
+        duration = time.time() - start_time
+        _trace_collector.end_nested_call(nested_call, duration)
+        return result
+
+    except Exception as e:
+        # Record error
+        duration = time.time() - start_time
+        _trace_collector.end_nested_call(nested_call, duration, str(e), traceback.format_exc())
+        raise
+
+
+def _get_caller_info(func):
+    """Get file path, line number, and function name for a function."""
+    try:
+        frame = inspect.currentframe()
+        # Go up the stack to find the calling frame
+        # Skip: _get_caller_info -> decorator wrapper -> actual function
+        while frame and frame.f_code.co_name in ['_get_caller_info', 'wrapper', 'async_wrapper']:
+            frame = frame.f_back
+
+        if frame:
+            filename = frame.f_code.co_filename
+            # Make path relative to project root if possible
+            try:
+                rel_path = os.path.relpath(filename, os.getcwd())
+                if not rel_path.startswith('..'):
+                    filename = rel_path
+            except ValueError:
+                pass  # Keep absolute path if relpath fails
+
+            return {
+                'file': filename,
+                'line': frame.f_lineno,
+                'function': func.__name__
+            }
+    except Exception:
+        pass
+
+    # Fallback to function info only
+    return {
+        'file': getattr(func, '__module__', 'unknown'),
+        'line': None,
+        'function': func.__name__
+    }
+
+
+def _format_simple_args(args, kwargs, max_length=100):
+    """Format simple argument values for tracing, avoiding complex objects."""
+    formatted_args = []
+
+    # Format positional args (skip 'self' if present)
+    # Check if first arg looks like a 'self' parameter (has __class__ but isn't a simple type)
+    start_idx = 0
+    if (args and hasattr(args[0], '__class__') and
+        not isinstance(args[0], (str, int, float, bool, type(None), list, tuple, dict))):
+        start_idx = 1
+
+    for i, arg in enumerate(args[start_idx:]):
+        try:
+            actual_index = i + start_idx
+            if isinstance(arg, (str, int, float, bool, type(None))):
+                arg_str = repr(arg)
+                if len(arg_str) > max_length:
+                    arg_str = arg_str[:max_length-3] + "..."
+                formatted_args.append(f"arg{actual_index}={arg_str}")
+            elif isinstance(arg, (list, tuple)) and len(arg) < 10:
+                # Include small collections if they contain simple types
+                if all(isinstance(item, (str, int, float, bool, type(None))) for item in arg):
+                    arg_str = repr(arg)
+                    if len(arg_str) > max_length:
+                        arg_str = arg_str[:max_length-3] + "..."
+                    formatted_args.append(f"arg{actual_index}={arg_str}")
+                else:
+                    formatted_args.append(f"arg{actual_index}=<{type(arg).__name__}[{len(arg)}]>")
+            else:
+                # For complex objects, just show type and basic info
+                if hasattr(arg, '__len__'):
+                    try:
+                        length = len(arg)
+                        formatted_args.append(f"arg{actual_index}=<{type(arg).__name__}[{length}]>")
+                    except (TypeError, AttributeError):
+                        formatted_args.append(f"arg{actual_index}=<{type(arg).__name__}>")
+                else:
+                    formatted_args.append(f"arg{actual_index}=<{type(arg).__name__}>")
+        except Exception:
+            formatted_args.append(f"arg{actual_index}=<unprintable>")
+
+    # Format keyword args
+    for key, value in kwargs.items():
+        try:
+            if isinstance(value, (str, int, float, bool, type(None))):
+                val_str = repr(value)
+                if len(val_str) > max_length:
+                    val_str = val_str[:max_length-3] + "..."
+                formatted_args.append(f"{key}={val_str}")
+            elif isinstance(value, (list, tuple)) and len(value) < 10:
+                # Include small collections if they contain simple types
+                if all(isinstance(item, (str, int, float, bool, type(None))) for item in value):
+                    val_str = repr(value)
+                    if len(val_str) > max_length:
+                        val_str = val_str[:max_length-3] + "..."
+                    formatted_args.append(f"{key}={val_str}")
+                else:
+                    formatted_args.append(f"{key}=<{type(value).__name__}[{len(value)}]>")
+            else:
+                # For complex objects, just show type
+                if hasattr(value, '__len__'):
+                    try:
+                        length = len(value)
+                        formatted_args.append(f"{key}=<{type(value).__name__}[{length}]>")
+                    except (TypeError, AttributeError):
+                        formatted_args.append(f"{key}=<{type(value).__name__}>")
+                else:
+                    formatted_args.append(f"{key}=<{type(value).__name__}>")
+        except Exception:
+            formatted_args.append(f"{key}=<unprintable>")
+
+    return formatted_args
 
 
 @dataclass
@@ -30,11 +165,45 @@ class TraceEvent:
             self.thread_id = str(threading.get_ident())
 
 
+@dataclass
+class NestedTraceCall:
+    """Represents a nested function call with timing and children."""
+    timestamp: float
+    component: str
+    operation: str
+    details: Dict[str, Any]
+    children: List['NestedTraceCall']
+    duration: Optional[float] = None
+    error: Optional[str] = None
+    stack_trace: Optional[str] = None
+    thread_id: str = ""
+
+    def __post_init__(self):
+        if not self.thread_id:
+            self.thread_id = str(threading.get_ident())
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'timestamp': self.timestamp,
+            'timestamp_human': datetime.fromtimestamp(self.timestamp).isoformat(),
+            'component': self.component,
+            'operation': self.operation,
+            'details': self.details,
+            'duration': self.duration,
+            'error': self.error,
+            'stack_trace': self.stack_trace,
+            'thread_id': self.thread_id,
+            'children': [child.to_dict() for child in self.children]
+        }
+
+
 class TraceCollector:
-    """Thread-safe trace event collector."""
+    """Thread-safe trace event collector with call stack tracking."""
 
     def __init__(self):
-        self._events: List[TraceEvent] = []
+        self._nested_calls: List[NestedTraceCall] = []
+        self._call_stacks: Dict[str, List[NestedTraceCall]] = {}  # Per-thread call stacks
         self._lock = threading.Lock()
         self._session_id: Optional[str] = None
         self._start_time = time.time()
@@ -43,31 +212,76 @@ class TraceCollector:
         """Set the session ID for this trace."""
         self._session_id = session_id
 
-    def add_event(self, event: TraceEvent):
-        """Add a trace event."""
-        with self._lock:
-            self._events.append(event)
-
-    def get_events(self) -> List[TraceEvent]:
-        """Get all trace events."""
-        with self._lock:
-            return self._events.copy()
-
     def clear(self):
         """Clear all events."""
         with self._lock:
-            self._events.clear()
+            self._nested_calls.clear()
+            self._call_stacks.clear()
             self._start_time = time.time()
 
-    def save_to_file(self, filepath: Path):
-        """Save trace events to JSON file."""
-        events_data = []
+    def start_nested_call(self, component: str, operation: str, details: Dict[str, Any]) -> NestedTraceCall:
+        """Start a new nested call and push to stack."""
+        thread_id = str(threading.get_ident())
+
         with self._lock:
-            for event in self._events:
-                event_dict = asdict(event)
-                # Convert timestamp to readable format
-                event_dict['timestamp_human'] = datetime.fromtimestamp(event.timestamp).isoformat()
-                events_data.append(event_dict)
+            call = NestedTraceCall(
+                timestamp=time.time(),
+                component=component,
+                operation=operation,
+                details=details,
+                children=[]
+            )
+
+            # Get or create call stack for this thread
+            if thread_id not in self._call_stacks:
+                self._call_stacks[thread_id] = []
+            call_stack = self._call_stacks[thread_id]
+
+            if call_stack:
+                # Add as child to current call in this thread's stack
+                call_stack[-1].children.append(call)
+            else:
+                # This is a top-level call for this thread
+                self._nested_calls.append(call)
+
+            # Push to thread's stack
+            call_stack.append(call)
+            return call
+
+    def end_nested_call(self, call: NestedTraceCall, duration: float, error: str = None, stack_trace: str = None):
+        """End a nested call and pop from stack."""
+        thread_id = str(threading.get_ident())
+
+        with self._lock:
+            if thread_id in self._call_stacks:
+                call_stack = self._call_stacks[thread_id]
+                if call_stack and call_stack[-1] == call:
+                    call.duration = duration
+                    call.error = error
+                    call.stack_trace = stack_trace
+                    call_stack.pop()
+
+                    # Clean up empty call stack
+                    if not call_stack:
+                        del self._call_stacks[thread_id]
+
+    def get_nested_calls(self) -> List[NestedTraceCall]:
+        """Get all top-level nested calls."""
+        with self._lock:
+            return self._nested_calls.copy()
+
+    def get_events(self) -> List[NestedTraceCall]:
+        """Get all nested calls (compatibility method)."""
+        return self.get_nested_calls()
+
+    def save_to_file(self, filepath: Path):
+        """Save nested calls to JSON file."""
+        nested_calls_data = []
+
+        with self._lock:
+            # Process nested calls
+            for call in self._nested_calls:
+                nested_calls_data.append(call.to_dict())
 
         trace_data = {
             'session_id': self._session_id,
@@ -75,8 +289,8 @@ class TraceCollector:
             'start_time_human': datetime.fromtimestamp(self._start_time).isoformat(),
             'end_time': time.time(),
             'end_time_human': datetime.now().isoformat(),
-            'total_events': len(events_data),
-            'events': events_data
+            'total_calls': len(nested_calls_data),
+            'call_stack': nested_calls_data  # Nested structure showing call hierarchy
         }
 
         filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -94,29 +308,17 @@ def get_trace_collector() -> TraceCollector:
 
 
 def trace_event(component: str, operation: str, **details):
-    """Record a trace event."""
-    event = TraceEvent(
-        timestamp=time.time(),
-        event_type="event",
-        component=component,
-        operation=operation,
-        details=details
-    )
-    _trace_collector.add_event(event)
+    """Record a simple trace event (compatibility function)."""
+    # For simple events, create a minimal nested call with zero duration
+    call = _trace_collector.start_nested_call(component, operation, details)
+    _trace_collector.end_nested_call(call, 0.0)
 
 
 def trace_error(component: str, operation: str, error: Exception, **details):
-    """Record a trace error event."""
-    event = TraceEvent(
-        timestamp=time.time(),
-        event_type="error",
-        component=component,
-        operation=operation,
-        details=details,
-        error=str(error),
-        stack_trace=traceback.format_exc()
-    )
-    _trace_collector.add_event(event)
+    """Record a trace error event (compatibility function)."""
+    # For error events, create a minimal nested call with error
+    call = _trace_collector.start_nested_call(component, operation, details)
+    _trace_collector.end_nested_call(call, 0.0, str(error), traceback.format_exc())
 
 
 def trace_operation(component: str, operation: str, **details):
@@ -124,94 +326,54 @@ def trace_operation(component: str, operation: str, **details):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            start_time = time.time()
+            # Get caller information
+            caller_info = _get_caller_info(func)
+            formatted_args = _format_simple_args(args, kwargs)
+            enhanced_details = {
+                **details,
+                **caller_info,
+                'args': formatted_args,
+                'arg_count': len(args),
+                'kwarg_count': len(kwargs)
+            }
 
-            # Record start event
-            start_event = TraceEvent(
-                timestamp=start_time,
-                event_type="operation_start",
-                component=component,
-                operation=operation,
-                details=details
-            )
-            _trace_collector.add_event(start_event)
+            start_time = time.time()
+            nested_call = _trace_collector.start_nested_call(component, operation, enhanced_details)
 
             try:
                 result = func(*args, **kwargs)
-
-                # Record success end event
                 duration = time.time() - start_time
-                end_event = TraceEvent(
-                    timestamp=time.time(),
-                    event_type="operation_end",
-                    component=component,
-                    operation=operation,
-                    details={**details, "status": "success"},
-                    duration=duration
-                )
-                _trace_collector.add_event(end_event)
+                _trace_collector.end_nested_call(nested_call, duration)
                 return result
-
             except Exception as e:
-                # Record error end event
                 duration = time.time() - start_time
-                end_event = TraceEvent(
-                    timestamp=time.time(),
-                    event_type="operation_end",
-                    component=component,
-                    operation=operation,
-                    details={**details, "status": "error"},
-                    duration=duration,
-                    error=str(e),
-                    stack_trace=traceback.format_exc()
-                )
-                _trace_collector.add_event(end_event)
+                _trace_collector.end_nested_call(nested_call, duration, str(e), traceback.format_exc())
                 raise
 
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
-            start_time = time.time()
+            # Get caller information
+            caller_info = _get_caller_info(func)
+            formatted_args = _format_simple_args(args, kwargs)
+            enhanced_details = {
+                **details,
+                **caller_info,
+                'args': formatted_args,
+                'arg_count': len(args),
+                'kwarg_count': len(kwargs)
+            }
 
-            # Record start event
-            start_event = TraceEvent(
-                timestamp=start_time,
-                event_type="operation_start",
-                component=component,
-                operation=operation,
-                details=details
-            )
-            _trace_collector.add_event(start_event)
+            start_time = time.time()
+            nested_call = _trace_collector.start_nested_call(component, operation, enhanced_details)
 
             try:
                 result = await func(*args, **kwargs)
-
-                # Record success end event
                 duration = time.time() - start_time
-                end_event = TraceEvent(
-                    timestamp=time.time(),
-                    event_type="operation_end",
-                    component=component,
-                    operation=operation,
-                    details={**details, "status": "success"},
-                    duration=duration
-                )
-                _trace_collector.add_event(end_event)
+                _trace_collector.end_nested_call(nested_call, duration)
                 return result
-
             except Exception as e:
-                # Record error end event
                 duration = time.time() - start_time
-                end_event = TraceEvent(
-                    timestamp=time.time(),
-                    event_type="operation_end",
-                    component=component,
-                    operation=operation,
-                    details={**details, "status": "error"},
-                    duration=duration,
-                    error=str(e),
-                    stack_trace=traceback.format_exc()
-                )
-                _trace_collector.add_event(end_event)
+                _trace_collector.end_nested_call(nested_call, duration, str(e), traceback.format_exc())
                 raise
 
         # Return appropriate wrapper based on whether function is async
@@ -236,55 +398,37 @@ def trace_method(component: str = None):
             elif not comp:
                 comp = func.__module__
 
-            # Extract method details
-            method_details = {
-                "function": func.__name__,
-                "args_count": len(args),
-                "kwargs": list(kwargs.keys())
-            }
-
             start_time = time.time()
 
-            # Record start event
-            start_event = TraceEvent(
-                timestamp=start_time,
-                event_type="operation_start",
-                component=comp,
-                operation=func.__name__,
-                details=method_details
-            )
-            _trace_collector.add_event(start_event)
+            # Get caller information
+            caller_info = _get_caller_info(func)
+
+            # Format arguments
+            formatted_args = _format_simple_args(args, kwargs)
+
+            # Extract method details with enhanced information
+            method_details = {
+                **caller_info,
+                'args': formatted_args,
+                'arg_count': len(args),
+                'kwarg_count': len(kwargs)
+            }
+
+            # Start nested call tracking
+            nested_call = _trace_collector.start_nested_call(comp, func.__name__, method_details)
 
             try:
                 result = func(*args, **kwargs)
 
-                # Record success end event
+                # Record success
                 duration = time.time() - start_time
-                end_event = TraceEvent(
-                    timestamp=time.time(),
-                    event_type="operation_end",
-                    component=comp,
-                    operation=func.__name__,
-                    details={**method_details, "status": "success"},
-                    duration=duration
-                )
-                _trace_collector.add_event(end_event)
+                _trace_collector.end_nested_call(nested_call, duration)
                 return result
 
             except Exception as e:
-                # Record error end event
+                # Record error
                 duration = time.time() - start_time
-                end_event = TraceEvent(
-                    timestamp=time.time(),
-                    event_type="operation_end",
-                    component=comp,
-                    operation=func.__name__,
-                    details={**method_details, "status": "error"},
-                    duration=duration,
-                    error=str(e),
-                    stack_trace=traceback.format_exc()
-                )
-                _trace_collector.add_event(end_event)
+                _trace_collector.end_nested_call(nested_call, duration, str(e), traceback.format_exc())
                 raise
 
         @wraps(func)
@@ -296,55 +440,37 @@ def trace_method(component: str = None):
             elif not comp:
                 comp = func.__module__
 
-            # Extract method details
-            method_details = {
-                "function": func.__name__,
-                "args_count": len(args),
-                "kwargs": list(kwargs.keys())
-            }
-
             start_time = time.time()
 
-            # Record start event
-            start_event = TraceEvent(
-                timestamp=start_time,
-                event_type="operation_start",
-                component=comp,
-                operation=func.__name__,
-                details=method_details
-            )
-            _trace_collector.add_event(start_event)
+            # Get caller information
+            caller_info = _get_caller_info(func)
+
+            # Format arguments
+            formatted_args = _format_simple_args(args, kwargs)
+
+            # Extract method details with enhanced information
+            method_details = {
+                **caller_info,
+                'args': formatted_args,
+                'arg_count': len(args),
+                'kwarg_count': len(kwargs)
+            }
+
+            # Start nested call tracking
+            nested_call = _trace_collector.start_nested_call(comp, func.__name__, method_details)
 
             try:
                 result = await func(*args, **kwargs)
 
-                # Record success end event
+                # Record success
                 duration = time.time() - start_time
-                end_event = TraceEvent(
-                    timestamp=time.time(),
-                    event_type="operation_end",
-                    component=comp,
-                    operation=func.__name__,
-                    details={**method_details, "status": "success"},
-                    duration=duration
-                )
-                _trace_collector.add_event(end_event)
+                _trace_collector.end_nested_call(nested_call, duration)
                 return result
 
             except Exception as e:
-                # Record error end event
+                # Record error
                 duration = time.time() - start_time
-                end_event = TraceEvent(
-                    timestamp=time.time(),
-                    event_type="operation_end",
-                    component=comp,
-                    operation=func.__name__,
-                    details={**method_details, "status": "error"},
-                    duration=duration,
-                    error=str(e),
-                    stack_trace=traceback.format_exc()
-                )
-                _trace_collector.add_event(end_event)
+                _trace_collector.end_nested_call(nested_call, duration, str(e), traceback.format_exc())
                 raise
 
         # Return appropriate wrapper based on whether function is async
