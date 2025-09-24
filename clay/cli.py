@@ -1,7 +1,6 @@
 """CLI interface for Clay."""
 
 import asyncio
-import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -25,12 +24,10 @@ from .tools import (
     WebFetchTool, WebSearchTool
 )
 from .llm import create_llm_provider, get_default_provider
-from .conversation import ConversationManager
-from .session_manager import SessionManager
 from .orchestrator import ClayOrchestrator
 from .trace import (
     trace_operation, trace_event, trace_error,
-    save_trace_file, set_session_id, clear_trace
+    save_trace_file, set_session_id
 )
 
 
@@ -56,11 +53,12 @@ class ClaySession:
         self.agent_orchestrator = AgentOrchestrator()
         self.clay_orchestrator = None
 
-        self.conversation = ConversationManager()
-        self.session_manager = SessionManager()
+        # Track conversation history
+        self.conversation_history = []
 
         # Session management
-        self.session_id = session_id or self.session_manager.create_session()
+        import uuid
+        self.session_id = session_id or str(uuid.uuid4())
 
         # Set trace session ID
         set_session_id(self.session_id)
@@ -88,19 +86,6 @@ class ClaySession:
 
         trace_event("ClaySession", "initialization_complete")
 
-    def load_session(self, session_id: str) -> bool:
-        """Load a previous session."""
-        session_data = self.session_manager.get_session(session_id)
-        if session_data:
-            self.session_id = session_id
-            # Restore conversation history
-            for message in session_data["messages"]:
-                if message["role"] == "user":
-                    self.conversation.add_user_message(message["content"])
-                elif message["role"] == "assistant":
-                    self.conversation.add_assistant_message(message["content"])
-            return True
-        return False
 
     def setup_agents(self):
         """Initialize and configure agents."""
@@ -150,8 +135,7 @@ class ClaySession:
                    length=len(message),
                    preview=message[:100])
 
-        self.conversation.add_user_message(message)
-        self.session_manager.add_message(self.session_id, "user", message)
+        self.conversation_history.append({"role": "user", "content": message})
 
         # Determine processing path
         is_complex = self._is_complex_task(message)
@@ -267,8 +251,7 @@ class ClaySession:
                     progress.update(task, completed=True)
                 response = f"Orchestrator error: {str(e)}"
 
-        self.conversation.add_assistant_message(response)
-        self.session_manager.add_message(self.session_id, "assistant", response)
+        self.conversation_history.append({"role": "assistant", "content": response})
         return response
 
     @trace_operation("ClaySession", "agent_processing")
@@ -278,7 +261,7 @@ class ClaySession:
 
         context = AgentContext(
             working_directory=str(self.working_dir),
-            conversation_history=self.conversation.get_history(),
+            conversation_history=self.conversation_history.copy(),
             available_tools=[],
             metadata={}
         )
@@ -346,8 +329,7 @@ class ClaySession:
             else:
                 response = self._generate_response_from_result(result, message)
 
-        self.conversation.add_assistant_message(response)
-        self.session_manager.add_message(self.session_id, "assistant", response)
+        self.conversation_history.append({"role": "assistant", "content": response})
         return response
 
     def _format_orchestrator_success(self, result: dict) -> str:
@@ -462,8 +444,6 @@ class ClaySession:
 @click.option("--input-format", type=click.Choice(["text", "json"]), default="text", help="Input format")
 @click.option("--verbose", is_flag=True, help="Enable detailed logging")
 @click.option("--max-turns", type=int, help="Limit agentic turns")
-@click.option("--continue", "-c", "continue_session", is_flag=True, help="Continue most recent conversation")
-@click.option("--resume", "-r", help="Resume specific session by ID")
 @click.option("--append-system-prompt", help="Append to system prompt")
 @click.option("--use-orchestrator/--no-orchestrator", default=True, help="Use Clay orchestrator for complex tasks")
 @click.option("--analyze-only", is_flag=True, help="Analyze project without making changes")
@@ -471,7 +451,7 @@ class ClaySession:
 def cli(ctx: click.Context, print: bool, provider: Optional[str], model: Optional[str],
         api_key: Optional[str], fast: bool, add_dir: tuple, allowed_tools: tuple,
         disallowed_tools: tuple, output_format: str, input_format: str, verbose: bool,
-        max_turns: Optional[int], continue_session: bool, resume: Optional[str],
+        max_turns: Optional[int],
         append_system_prompt: Optional[str], use_orchestrator: bool, analyze_only: bool, query: Optional[str]):
     """Clay - Agentic Coding System similar to Claude Code."""
 
@@ -570,12 +550,6 @@ def cli(ctx: click.Context, print: bool, provider: Optional[str], model: Optiona
     elif print or query or piped_input:
         # Headless mode - print response and exit
         asyncio.run(run_headless_mode(session, query, piped_input, output_format))
-    elif continue_session:
-        # Continue most recent conversation
-        asyncio.run(run_continue_mode(session))
-    elif resume:
-        # Resume specific session
-        asyncio.run(run_resume_mode(session, resume))
     else:
         # Interactive mode
         if not query:
@@ -670,36 +644,6 @@ async def run_headless_mode(session: ClaySession, query: Optional[str], piped_in
             console.print(f"[yellow]Warning: Failed to save trace: {e}[/yellow]")
 
 
-async def run_continue_mode(session: ClaySession):
-    """Continue the most recent conversation."""
-    current_session = session.session_manager.get_current_session()
-    if current_session:
-        if session.load_session(current_session["id"]):
-            console.print(f"[green]Continuing session {current_session['id']} ({len(current_session['messages'])} messages)[/green]")
-            await run_interactive_mode(session, None)
-        else:
-            console.print("[red]Failed to load current session[/red]")
-            await run_interactive_mode(session, None)
-    else:
-        console.print("[yellow]No previous session found - starting new session[/yellow]")
-        await run_interactive_mode(session, None)
-
-
-async def run_resume_mode(session: ClaySession, session_id: str):
-    """Resume a specific session by ID."""
-    if session.load_session(session_id):
-        session_data = session.session_manager.get_session(session_id)
-        console.print(f"[green]Resumed session {session_id} ({len(session_data['messages'])} messages)[/green]")
-        await run_interactive_mode(session, None)
-    else:
-        console.print(f"[red]Session '{session_id}' not found[/red]")
-        # List available sessions
-        sessions = session.session_manager.list_sessions()
-        if sessions:
-            console.print("\n[cyan]Available sessions:[/cyan]")
-            for s in sessions[:5]:  # Show first 5
-                console.print(f"  {s['id']} - {s['last_updated'][:10]} ({s['message_count']} messages)")
-        await run_interactive_mode(session, None)
 
 
 async def run_interactive_mode(session: ClaySession, initial_query: Optional[str]):
@@ -751,23 +695,6 @@ async def run_interactive_mode(session: ClaySession, initial_query: Optional[str
         console.print(f"[yellow]Warning: Failed to save trace: {e}[/yellow]")
 
 
-@click.group()
-def main_cli():
-    """Clay - Agentic Coding System"""
-    pass
-
-
-@main_cli.command()
-def update():
-    """Update Clay to the latest version."""
-    console.print("[yellow]Update functionality not yet implemented[/yellow]")
-    console.print("Please use: pip install --upgrade clay")
-
-
-@main_cli.command()
-def mcp():
-    """Configure Model Context Protocol servers."""
-    console.print("[yellow]MCP configuration not yet implemented[/yellow]")
 
 
 def show_help():
@@ -785,8 +712,6 @@ def show_help():
 - `clay "query"` - Start with initial query
 - `clay -p "query"` - Headless mode (print and exit)
 - `cat file | clay -p "query"` - Process piped content
-- `clay -c` - Continue most recent conversation
-- `clay -r session-id` - Resume specific session
 - `clay --add-dir ../path` - Add working directories
 - `clay --fast` - Use fast mode
 - `clay --output-format json` - JSON output
@@ -800,10 +725,6 @@ def show_help():
 - `cat README.md | clay -p "Summarize this"`
     """
     console.print(Markdown(help_text))
-
-
-# Add the main CLI to the group
-main_cli.add_command(cli, name="main")
 
 
 @cli.command()
