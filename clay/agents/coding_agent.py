@@ -10,18 +10,17 @@ from ..llm.base import LLMProvider
 class CodingAgent(Agent):
     """Agent specialized for coding tasks."""
 
-    def __init__(self, llm_provider: Optional[LLMProvider] = None):
+    def __init__(self, llm_provider: LLMProvider):
         super().__init__(
             name="coding_agent",
             description="Agent specialized for writing, editing, and debugging code"
         )
+        if not llm_provider:
+            raise ValueError("LLM provider is required")
         self.llm_provider = llm_provider
 
     async def think(self, prompt: str, context: AgentContext) -> AgentResult:
         """Process the prompt and decide on coding actions."""
-        if not self.llm_provider:
-            return await self._mock_think(prompt, context)
-
         system_prompt = self._build_system_prompt(context)
         response = await self.llm_provider.complete(
             system_prompt=system_prompt,
@@ -108,58 +107,3 @@ If no tools are needed for information-only responses:
             output=response
         )
 
-    async def _mock_think(self, prompt: str, context: AgentContext) -> AgentResult:
-        """Mock implementation when no LLM provider."""
-        prompt_lower = prompt.lower()
-
-        if "read" in prompt_lower and "file" in prompt_lower:
-            file_path = self._extract_file_path(prompt)
-            if file_path:
-                return AgentResult(
-                    status=AgentStatus.COMPLETE,
-                    output=f"Reading file: {file_path}",
-                    tool_calls=[{
-                        "name": "read",
-                        "parameters": {"file_path": file_path}
-                    }]
-                )
-
-        elif "write" in prompt_lower or "create" in prompt_lower:
-            return AgentResult(
-                status=AgentStatus.COMPLETE,
-                output="Ready to write file",
-                tool_calls=[]
-            )
-
-        elif "run" in prompt_lower or "execute" in prompt_lower:
-            command = self._extract_command(prompt)
-            if command:
-                return AgentResult(
-                    status=AgentStatus.COMPLETE,
-                    output=f"Executing: {command}",
-                    tool_calls=[{
-                        "name": "bash",
-                        "parameters": {"command": command}
-                    }]
-                )
-
-        return AgentResult(
-            status=AgentStatus.COMPLETE,
-            output=f"Processing: {prompt}"
-        )
-
-    def _extract_file_path(self, prompt: str) -> Optional[str]:
-        """Extract file path from prompt."""
-        words = prompt.split()
-        for i, word in enumerate(words):
-            if "/" in word or "." in word:
-                return word
-        return None
-
-    def _extract_command(self, prompt: str) -> Optional[str]:
-        """Extract command from prompt."""
-        if "`" in prompt:
-            start = prompt.index("`") + 1
-            end = prompt.rindex("`")
-            return prompt[start:end]
-        return None

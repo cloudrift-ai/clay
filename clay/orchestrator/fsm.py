@@ -81,7 +81,7 @@ class ControlLoopOrchestrator:
         self.test_runner = test_runner
         self.policy = policy_engine
         self.model = model_agent
-        self.llm = llm_agent or model_agent  # Use LLM agent if provided, otherwise fallback to model_agent
+        self.llm = llm_agent or model_agent
 
         # Define state transitions
         self.transitions = self._define_transitions()
@@ -270,67 +270,32 @@ Respond with ONLY "COMPLEX" or "SIMPLE" followed by a brief reason (max 20 words
 """
 
         # Use the LLM agent to analyze complexity
-        if self.llm:
-            try:
-                response = await self.llm.analyze_task_complexity(complexity_prompt)
-                # Parse the response
-                response_lower = response.lower().strip()
+        try:
+            response = await self.llm.analyze_task_complexity(complexity_prompt)
+            # Parse the response
+            response_lower = response.lower().strip()
 
-                if response_lower.startswith("complex"):
-                    ctx.is_complex_task = True
-                    logger.info(f"Task classified as COMPLEX: {response}")
-                elif response_lower.startswith("simple"):
-                    ctx.is_complex_task = False
-                    ctx.skip_to_edit = True
-                    logger.info(f"Task classified as SIMPLE: {response}")
-                else:
-                    # Default to complex if uncertain
-                    ctx.is_complex_task = True
-                    logger.warning(f"Unclear classification, defaulting to COMPLEX. Response: {response}")
-
-                ctx.artifacts['task_complexity'] = 'complex' if ctx.is_complex_task else 'simple'
-                ctx.artifacts['complexity_reason'] = response
-
-            except Exception as e:
-                # On error, default to complex for safety
-                logger.error(f"Error analyzing task complexity: {e}")
+            if response_lower.startswith("complex"):
                 ctx.is_complex_task = True
-                ctx.artifacts['task_complexity'] = 'complex'
-                ctx.artifacts['complexity_analysis_error'] = str(e)
-        else:
-            # No model available, use simple heuristics
-            message_lower = ctx.goal.lower()
-
-            simple_indicators = [
-                "read", "show", "find", "search", "grep", "list", "ls", "cat",
-                "what is", "how many", "explain", "describe", "analyze", "check",
-                "display", "print", "view", "see", "count", "summary", "summarize"
-            ]
-
-            complex_indicators = [
-                "implement", "create", "build", "add", "modify", "refactor",
-                "fix", "debug", "update", "write", "change", "develop",
-                "install", "setup", "configure", "deploy"
-            ]
-
-            # Check for simple indicators
-            if any(indicator in message_lower for indicator in simple_indicators):
+                logger.info(f"Task classified as COMPLEX: {response}")
+            elif response_lower.startswith("simple"):
                 ctx.is_complex_task = False
                 ctx.skip_to_edit = True
-                ctx.artifacts['task_complexity'] = 'simple'
-                ctx.artifacts['complexity_reason'] = 'Matched simple task indicators'
-            # Check for complex indicators
-            elif any(indicator in message_lower for indicator in complex_indicators):
-                ctx.is_complex_task = True
-                ctx.artifacts['task_complexity'] = 'complex'
-                ctx.artifacts['complexity_reason'] = 'Matched complex task indicators'
+                logger.info(f"Task classified as SIMPLE: {response}")
             else:
-                # Default to complex
+                # Default to complex if uncertain
                 ctx.is_complex_task = True
-                ctx.artifacts['task_complexity'] = 'complex'
-                ctx.artifacts['complexity_reason'] = 'No clear indicators, defaulting to complex'
+                logger.warning(f"Unclear classification, defaulting to COMPLEX. Response: {response}")
 
-            logger.info(f"Task classified as {ctx.artifacts['task_complexity'].upper()} (heuristic)")
+            ctx.artifacts['task_complexity'] = 'complex' if ctx.is_complex_task else 'simple'
+            ctx.artifacts['complexity_reason'] = response
+
+        except Exception as e:
+            # On error, default to complex for safety
+            logger.error(f"Error analyzing task complexity: {e}")
+            ctx.is_complex_task = True
+            ctx.artifacts['task_complexity'] = 'complex'
+            ctx.artifacts['complexity_analysis_error'] = str(e)
 
     async def _handle_ingest(self, ctx: OrchestratorContext):
         """INGEST state: Setup working copy and detect stack."""
@@ -389,24 +354,16 @@ Respond with ONLY "COMPLEX" or "SIMPLE" followed by a brief reason (max 20 words
         """EDIT state: Model proposes unified diff or handles simple queries."""
         # For simple tasks that skip planning, handle directly
         if ctx.skip_to_edit and not ctx.plan:
-            # Simple query - just get a direct response
-            if self.llm:
-                # For simple queries, directly ask the LLM
-                response = await self.llm.propose_patch(
-                    plan={"steps": ["Answer the query directly"], "description": ctx.goal},
-                    context={},
-                    previous_attempts=[]
-                )
-                ctx.proposed_diff = response
-                ctx.artifacts['response'] = response
-                ctx.artifacts['query_only'] = True
-                return
-            else:
-                # Fallback response when no model
-                ctx.proposed_diff = "Query processing not available"
-                ctx.artifacts['response'] = "Query processing not available"
-                ctx.artifacts['query_only'] = True
-                return
+            # Simple query - directly ask the LLM
+            response = await self.llm.propose_patch(
+                plan={"steps": ["Answer the query directly"], "description": ctx.goal},
+                context={},
+                previous_attempts=[]
+            )
+            ctx.proposed_diff = response
+            ctx.artifacts['response'] = response
+            ctx.artifacts['query_only'] = True
+            return
 
         # Complex task - get context for editing
         context_result = await self.context_engine.retrieve(

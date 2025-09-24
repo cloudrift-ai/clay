@@ -24,7 +24,9 @@ class ClayOrchestrator:
         self.context_engine = ContextEngine(working_dir)
 
         # Create dedicated LLM agent for general tasks
-        llm_agent = LLMAgent(agent.llm_provider if hasattr(agent, 'llm_provider') else None)
+        if not hasattr(agent, 'llm_provider') or not agent.llm_provider:
+            raise ValueError("Agent must have a valid LLM provider")
+        llm_agent = LLMAgent(agent.llm_provider)
 
         # Initialize the FSM orchestrator
         self.fsm_orchestrator = ControlLoopOrchestrator(
