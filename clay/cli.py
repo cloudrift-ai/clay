@@ -29,6 +29,10 @@ from .llm import create_llm_provider, get_default_provider
 from .conversation import ConversationManager
 from .session_manager import SessionManager
 from .orchestrator import ClayOrchestrator, PolicyConfig
+from .trace import (
+    trace_operation, trace_event, trace_error,
+    save_trace_file, set_session_id, clear_trace
+)
 
 
 console = Console()
@@ -39,38 +43,49 @@ class ClaySession:
 
     def __init__(self, llm_provider=None, working_dir: str = ".", fast_mode: bool = False, session_id: Optional[str] = None,
                  use_orchestrator: bool = True):
-        self.llm_provider = llm_provider or get_default_provider()
-        self.working_dir = Path(working_dir).resolve()
-        self.fast_mode = fast_mode
-        self.use_orchestrator = use_orchestrator
+        with trace_operation("ClaySession", "initialization",
+                           working_dir=str(working_dir),
+                           fast_mode=fast_mode,
+                           use_orchestrator=use_orchestrator):
 
-        # Initialize both orchestrators
-        self.agent_orchestrator = AgentOrchestrator()
-        self.clay_orchestrator = None
+            self.llm_provider = llm_provider or get_default_provider()
+            self.working_dir = Path(working_dir).resolve()
+            self.fast_mode = fast_mode
+            self.use_orchestrator = use_orchestrator
 
-        self.conversation = ConversationManager()
-        self.session_manager = SessionManager()
+            # Initialize both orchestrators
+            self.agent_orchestrator = AgentOrchestrator()
+            self.clay_orchestrator = None
 
-        # Session management
-        self.session_id = session_id or self.session_manager.create_session()
+            self.conversation = ConversationManager()
+            self.session_manager = SessionManager()
 
-        # New Claude Code compatible options
-        self.allowed_tools = None
-        self.disallowed_tools = None
-        self.max_turns = None
-        self.verbose = False
-        self.append_system_prompt = None
+            # Session management
+            self.session_id = session_id or self.session_manager.create_session()
 
-        self.setup_agents()
+            # Set trace session ID
+            set_session_id(self.session_id)
+            trace_event("Session", "created", session_id=self.session_id)
 
-        # Initialize Clay orchestrator if requested
-        if self.use_orchestrator and self.llm_provider:
-            try:
-                self.setup_clay_orchestrator()
-            except Exception as e:
-                console.print(f"[yellow]Warning: Failed to initialize Clay orchestrator: {e}[/yellow]")
-                console.print("[yellow]Falling back to legacy agent system[/yellow]")
-                self.use_orchestrator = False
+            # New Claude Code compatible options
+            self.allowed_tools = None
+            self.disallowed_tools = None
+            self.max_turns = None
+            self.verbose = False
+            self.append_system_prompt = None
+
+            self.setup_agents()
+
+            # Initialize Clay orchestrator if requested
+            if self.use_orchestrator and self.llm_provider:
+                try:
+                    self.setup_clay_orchestrator()
+                    trace_event("ClaySession", "orchestrator_initialized")
+                except Exception as e:
+                    trace_error("ClaySession", "orchestrator_setup_failed", e)
+                    console.print(f"[yellow]Warning: Failed to initialize Clay orchestrator: {e}[/yellow]")
+                    console.print("[yellow]Falling back to legacy agent system[/yellow]")
+                    self.use_orchestrator = False
 
     def load_session(self, session_id: str) -> bool:
         """Load a previous session."""
@@ -181,14 +196,30 @@ class ClaySession:
 
     async def process_message(self, message: str) -> str:
         """Process a user message and return response."""
-        self.conversation.add_user_message(message)
-        self.session_manager.add_message(self.session_id, "user", message)
+        with trace_operation("ClaySession", "process_message",
+                           message_length=len(message),
+                           message_preview=message[:100]):
 
-        # Use orchestrator for complex tasks, agents for simple queries
-        if self.use_orchestrator and self.clay_orchestrator and self._is_complex_task(message):
-            return await self._process_with_orchestrator(message)
-        else:
-            return await self._process_with_agents(message)
+            trace_event("Message", "received",
+                       length=len(message),
+                       preview=message[:100])
+
+            self.conversation.add_user_message(message)
+            self.session_manager.add_message(self.session_id, "user", message)
+
+            # Determine processing path
+            is_complex = self._is_complex_task(message)
+            use_orchestrator = self.use_orchestrator and self.clay_orchestrator and is_complex
+
+            trace_event("TaskRouting", "decision",
+                       is_complex_task=is_complex,
+                       will_use_orchestrator=use_orchestrator)
+
+            # Use orchestrator for complex tasks, agents for simple queries
+            if use_orchestrator:
+                return await self._process_with_orchestrator(message)
+            else:
+                return await self._process_with_agents(message)
 
     def _is_complex_task(self, message: str) -> bool:
         """Determine if this is a complex coding task that benefits from the orchestrator."""
@@ -229,103 +260,132 @@ class ClaySession:
 
     async def _process_with_orchestrator(self, message: str) -> str:
         """Process message using the Clay orchestrator."""
-        # Check if we're in headless mode (no TTY)
-        import sys
-        show_progress = sys.stdout.isatty()
+        with trace_operation("ClaySession", "orchestrator_processing",
+                           message_length=len(message)):
 
-        if show_progress:
-            progress_context = Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                console=console
-            )
-        else:
-            from contextlib import nullcontext
-            progress_context = nullcontext()
+            trace_event("Processing", "using_orchestrator")
 
-        with progress_context as progress:
+            # Check if we're in headless mode (no TTY)
+            import sys
+            show_progress = sys.stdout.isatty()
+
             if show_progress:
-                task = progress.add_task("Processing with Clay orchestrator...", total=None)
+                progress_context = Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    console=console
+                )
             else:
-                task = None
+                from contextlib import nullcontext
+                progress_context = nullcontext()
 
-            try:
-                # Extract constraints from message if any
-                constraints = {}
-                if self.append_system_prompt:
-                    constraints["system_prompt"] = self.append_system_prompt
-
-                result = await self.clay_orchestrator.process_task(message, constraints)
-
+            with progress_context as progress:
                 if show_progress:
-                    progress.update(task, completed=True)
-
-                # Format response based on result
-                if result.get("status") == "success":
-                    response = self._format_orchestrator_success(result)
-                elif result.get("status") == "error":
-                    response = f"Error: {result.get('error', 'Unknown error occurred')}"
+                    task = progress.add_task("Processing with Clay orchestrator...", total=None)
                 else:
-                    # Check if this was a query-only task
-                    artifacts = result.get('artifacts', {})
-                    if artifacts.get('query_only'):
-                        response = artifacts.get('response', 'Query completed')
-                    elif artifacts.get('final_diff'):
-                        response = "✅ Task completed successfully!"
+                    task = None
+
+                try:
+                    trace_event("Orchestrator", "task_started")
+
+                    # Extract constraints from message if any
+                    constraints = {}
+                    if self.append_system_prompt:
+                        constraints["system_prompt"] = self.append_system_prompt
+
+                    result = await self.clay_orchestrator.process_task(message, constraints)
+
+                    trace_event("Orchestrator", "task_completed",
+                               status=result.get("status"),
+                               duration=result.get("duration"))
+
+                    if show_progress:
+                        progress.update(task, completed=True)
+
+                    # Format response based on result
+                    if result.get("status") == "success":
+                        response = self._format_orchestrator_success(result)
+                    elif result.get("status") == "error":
+                        response = f"Error: {result.get('error', 'Unknown error occurred')}"
                     else:
-                        response = f"Task completed with status: {result.get('status', 'unknown')}"
+                        # Check if this was a query-only task
+                        artifacts = result.get('artifacts', {})
+                        if artifacts.get('query_only'):
+                            response = artifacts.get('response', 'Query completed')
+                        elif artifacts.get('final_diff'):
+                            response = "✅ Task completed successfully!"
+                        else:
+                            response = f"Task completed with status: {result.get('status', 'unknown')}"
 
-            except Exception as e:
-                if show_progress:
-                    progress.update(task, completed=True)
-                response = f"Orchestrator error: {str(e)}"
+                except Exception as e:
+                    trace_error("Orchestrator", "task_failed", e)
+                    if show_progress:
+                        progress.update(task, completed=True)
+                    response = f"Orchestrator error: {str(e)}"
 
-        self.conversation.add_assistant_message(response)
-        self.session_manager.add_message(self.session_id, "assistant", response)
-        return response
+            self.conversation.add_assistant_message(response)
+            self.session_manager.add_message(self.session_id, "assistant", response)
+            return response
 
     async def _process_with_agents(self, message: str) -> str:
         """Process message using the legacy agent system."""
-        context = AgentContext(
-            working_directory=str(self.working_dir),
-            conversation_history=self.conversation.get_history(),
-            available_tools=[],
-            metadata={}
-        )
+        with trace_operation("ClaySession", "agent_processing",
+                           message_length=len(message)):
 
-        # Add system prompt if specified
-        if self.append_system_prompt:
-            context.metadata["append_system_prompt"] = self.append_system_prompt
+            trace_event("Processing", "using_agents")
 
-        agent_name = self.determine_agent(message)
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
-            task = progress.add_task(f"Thinking with {agent_name}...", total=None)
-
-            task_id = f"task_{len(self.agent_orchestrator.tasks)}"
-            agent_task = self.agent_orchestrator.create_task(
-                task_id=task_id,
-                prompt=message,
-                agent_name=agent_name
+            context = AgentContext(
+                working_directory=str(self.working_dir),
+                conversation_history=self.conversation.get_history(),
+                available_tools=[],
+                metadata={}
             )
 
-            await self.agent_orchestrator.submit_task(agent_task)
-            result = await self.agent_orchestrator.run_task(agent_task, context)
+            # Add system prompt if specified
+            if self.append_system_prompt:
+                context.metadata["append_system_prompt"] = self.append_system_prompt
 
-            progress.update(task, completed=True)
+            agent_name = self.determine_agent(message)
+            trace_event("AgentSelection", "determined",
+                       selected_agent=agent_name)
 
-        if result.error:
-            response = f"Error: {result.error}"
-        else:
-            response = result.output or "Task completed"
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console
+            ) as progress:
+                task = progress.add_task(f"Thinking with {agent_name}...", total=None)
 
-        self.conversation.add_assistant_message(response)
-        self.session_manager.add_message(self.session_id, "assistant", response)
-        return response
+                task_id = f"task_{len(self.agent_orchestrator.tasks)}"
+                agent_task = self.agent_orchestrator.create_task(
+                    task_id=task_id,
+                    prompt=message,
+                    agent_name=agent_name
+                )
+
+                trace_event("AgentTask", "created",
+                           task_id=task_id,
+                           agent_name=agent_name)
+
+                await self.agent_orchestrator.submit_task(agent_task)
+                result = await self.agent_orchestrator.run_task(agent_task, context)
+
+                trace_event("AgentTask", "completed",
+                           task_id=task_id,
+                           has_error=bool(result.error),
+                           output_length=len(result.output or ""))
+
+                progress.update(task, completed=True)
+
+            if result.error:
+                trace_error("AgentTask", "execution_error", Exception(result.error))
+                response = f"Error: {result.error}"
+            else:
+                response = result.output or "Task completed"
+
+            self.conversation.add_assistant_message(response)
+            self.session_manager.add_message(self.session_id, "assistant", response)
+            return response
 
     def _format_orchestrator_success(self, result: dict) -> str:
         """Format successful orchestrator result into readable response."""
@@ -568,33 +628,50 @@ async def run_headless_mode(session: ClaySession, query: Optional[str], piped_in
     import json
     import logging
 
-    # Set logging to only show errors in headless mode
-    logging.getLogger().setLevel(logging.ERROR)
+    with trace_operation("CLI", "headless_mode", output_format=output_format):
+        # Set logging to only show errors in headless mode
+        logging.getLogger().setLevel(logging.ERROR)
 
-    # Combine query and piped input
-    if piped_input and query:
-        prompt = f"{piped_input}\n\n{query}"
-    elif piped_input:
-        prompt = piped_input
-    elif query:
-        prompt = query
-    else:
-        console.print("[red]Error: No input provided for headless mode[/red]")
-        return
+        # Combine query and piped input
+        if piped_input and query:
+            prompt = f"{piped_input}\n\n{query}"
+        elif piped_input:
+            prompt = piped_input
+        elif query:
+            prompt = query
+        else:
+            console.print("[red]Error: No input provided for headless mode[/red]")
+            return
 
-    response = await session.process_message(prompt)
+        trace_event("CLI", "headless_query", prompt_length=len(prompt))
 
-    if output_format == "json":
-        output = {"response": response, "status": "success"}
-        console.print(json.dumps(output, indent=2))
-    elif output_format == "stream-json":
-        # Simulate streaming JSON output
-        lines = response.split('\n')
-        for i, line in enumerate(lines):
-            output = {"line": i, "content": line, "final": i == len(lines) - 1}
-            console.print(json.dumps(output))
-    else:
-        console.print(response)
+        response = await session.process_message(prompt)
+
+        trace_event("CLI", "headless_response", response_length=len(response))
+
+        if output_format == "json":
+            output = {"response": response, "status": "success"}
+            console.print(json.dumps(output, indent=2))
+        elif output_format == "stream-json":
+            # Simulate streaming JSON output
+            lines = response.split('\n')
+            for i, line in enumerate(lines):
+                output = {"line": i, "content": line, "final": i == len(lines) - 1}
+                console.print(json.dumps(output))
+        else:
+            console.print(response)
+
+        # Save trace file
+        try:
+            trace_filepath = save_trace_file(session.session_id)
+            # Only show trace file path in verbose mode
+            import sys
+            if "--verbose" in sys.argv:
+                console.print(f"[dim]Trace saved: {trace_filepath}[/dim]")
+        except Exception as e:
+            # Don't fail the main execution if trace saving fails
+            if "--verbose" in sys.argv:
+                console.print(f"[yellow]Warning: Failed to save trace: {e}[/yellow]")
 
 
 async def run_continue_mode(session: ClaySession):
@@ -639,30 +716,44 @@ async def run_interactive_mode(session: ClaySession, initial_query: Optional[str
         response = await session.process_message(initial_query)
         console.print(Markdown(response))
 
-    while True:
+    with trace_operation("CLI", "interactive_mode"):
+        trace_event("CLI", "interactive_started")
+
+        while True:
+            try:
+                user_input = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: prompt_session.prompt("clay> ")
+                )
+
+                if user_input.lower() in ["exit", "quit"]:
+                    trace_event("CLI", "interactive_exiting", exit_command=user_input.lower())
+                    console.print("[cyan]Goodbye![/cyan]")
+                    break
+                elif user_input.lower() == "help":
+                    show_help()
+                    continue
+                elif user_input.lower() == "clear":
+                    console.clear()
+                    continue
+
+                trace_event("CLI", "interactive_query", query_length=len(user_input))
+                response = await session.process_message(user_input)
+                console.print(Markdown(response))
+
+            except KeyboardInterrupt:
+                trace_event("CLI", "keyboard_interrupt")
+                console.print("\n[cyan]Use 'exit' to quit[/cyan]")
+            except Exception as e:
+                trace_error("CLI", "interactive_error", e)
+                console.print(f"[red]Error: {e}[/red]")
+
+        # Save trace file when exiting interactive mode
         try:
-            user_input = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: prompt_session.prompt("clay> ")
-            )
-
-            if user_input.lower() in ["exit", "quit"]:
-                console.print("[cyan]Goodbye![/cyan]")
-                break
-            elif user_input.lower() == "help":
-                show_help()
-                continue
-            elif user_input.lower() == "clear":
-                console.clear()
-                continue
-
-            response = await session.process_message(user_input)
-            console.print(Markdown(response))
-
-        except KeyboardInterrupt:
-            console.print("\n[cyan]Use 'exit' to quit[/cyan]")
+            trace_filepath = save_trace_file(session.session_id)
+            console.print(f"[dim]Session trace saved: {trace_filepath}[/dim]")
         except Exception as e:
-            console.print(f"[red]Error: {e}[/red]")
+            console.print(f"[yellow]Warning: Failed to save trace: {e}[/yellow]")
 
 
 @click.group()

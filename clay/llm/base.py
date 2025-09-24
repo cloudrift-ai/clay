@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
+from ..trace import trace_operation, trace_llm_call
+
 
 class LLMModel(Enum):
     GPT4 = "gpt-4"

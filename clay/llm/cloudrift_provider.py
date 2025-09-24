@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any
 import aiohttp
 
 from .base import LLMProvider, LLMResponse
+from ..trace import trace_operation, trace_llm_call, trace_error
 
 
 class CloudriftProvider(LLMProvider):
@@ -27,37 +28,64 @@ class CloudriftProvider(LLMProvider):
         **kwargs
     ) -> LLMResponse:
         """Get completion from Cloudrift."""
-        messages = self.build_messages(system_prompt, user_prompt, kwargs.get("history"))
+        with trace_operation("LLM", "api_call",
+                           provider="cloudrift",
+                           model=self.model,
+                           prompt_length=len(system_prompt) + len(user_prompt),
+                           temperature=temperature or self.default_temperature):
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
+            trace_llm_call("cloudrift", self.model, len(system_prompt) + len(user_prompt),
+                          temperature=temperature or self.default_temperature,
+                          max_tokens=max_tokens or self.default_max_tokens)
 
-        data = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature or self.default_temperature,
-            "max_tokens": max_tokens or self.default_max_tokens
-        }
+            messages = self.build_messages(system_prompt, user_prompt, kwargs.get("history"))
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=data
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(f"Cloudrift API error: {error_text}")
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
 
-                result = await response.json()
-                return LLMResponse(
-                    content=result["choices"][0]["message"]["content"],
-                    model=result["model"],
-                    usage=result.get("usage"),
-                    metadata={"finish_reason": result["choices"][0].get("finish_reason")}
-                )
+            data = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": temperature or self.default_temperature,
+                "max_tokens": max_tokens or self.default_max_tokens
+            }
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=data
+                    ) as response:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            error = Exception(f"Cloudrift API error: {error_text}")
+                            trace_error("LLM", "api_call_failed", error,
+                                       provider="cloudrift",
+                                       status_code=response.status)
+                            raise error
+
+                        result = await response.json()
+                        response_obj = LLMResponse(
+                            content=result["choices"][0]["message"]["content"],
+                            model=result["model"],
+                            usage=result.get("usage"),
+                            metadata={"finish_reason": result["choices"][0].get("finish_reason")}
+                        )
+
+                        # Log successful completion
+                        trace_llm_call("cloudrift", self.model, len(system_prompt) + len(user_prompt),
+                                      response_length=len(response_obj.content),
+                                      usage=result.get("usage"),
+                                      finish_reason=result["choices"][0].get("finish_reason"))
+
+                        return response_obj
+
+            except Exception as e:
+                trace_error("LLM", "api_call_exception", e, provider="cloudrift")
+                raise
 
     async def stream_complete(
         self,
