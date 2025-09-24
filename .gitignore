@@ -211,3 +211,4 @@ _scratchpad
 _test/
 _traces/
 
+/node_modules

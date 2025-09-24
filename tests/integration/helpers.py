@@ -64,13 +64,22 @@ class IntegrationTestHelper:
 
         return session
 
-    def assert_response_quality(self, response: str, expected_keywords: List[str] = None, min_length: int = 10):
+    def assert_response_quality(self, response, expected_keywords: List[str] = None, min_length: int = 10):
         """Assert that a response meets quality criteria."""
         assert response, "Response should not be empty"
-        assert len(response) >= min_length, f"Response too short: {len(response)} < {min_length}"
+
+        # Handle both string and dictionary responses
+        if isinstance(response, dict):
+            # Convert dictionary to string for analysis
+            import json
+            response_str = json.dumps(response, indent=2)
+        else:
+            response_str = str(response)
+
+        assert len(response_str) >= min_length, f"Response too short: {len(response_str)} < {min_length}"
 
         if expected_keywords:
-            response_lower = response.lower()
+            response_lower = response_str.lower()
             for keyword in expected_keywords:
                 assert keyword.lower() in response_lower, f"Expected keyword '{keyword}' not found in response"
 

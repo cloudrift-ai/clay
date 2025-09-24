@@ -79,9 +79,29 @@ class ModelRouter:
             r'\b(true or false|t/f)\b',
         ]
 
-        # Coding patterns
+        # Creative patterns (check first for specificity)
+        creative_patterns = [
+            r'\b(story|poem|article|fiction|narrative|tale)\b',
+            r'\bcreative\b.*\b(story|writing|content|ideas)\b',
+            r'\b(write|compose).*\b(story|poem|article|creative)\b',
+            r'\b(imaginative|original|innovative|artistic)\b',
+            r'\b(brainstorm|inspiration|ideas|concepts)\b',
+        ]
+
+        # Research patterns (specific research activities)
+        research_patterns = [
+            r'\b(research|investigate|find information|search for|lookup)\b',
+            r'\b(summarize|synthesis|compile|gather).*\binformation\b',
+            r'\b(latest|recent|current|trends|news)\b',
+            r'\b(documentation|docs|reference|manual)\b',
+        ]
+
+        # Coding patterns (more specific to avoid false positives)
         coding_patterns = [
-            r'\b(implement|create|write|build|code|program|function|class|method)\b',
+            r'\b(implement|code|program|function|class|method)\b',
+            r'\bcreate.*\b(function|class|method|program|script|code)\b',
+            r'\bwrite.*\b(function|class|method|program|script|code)\b',
+            r'\bbuild.*\b(function|class|method|program|script|application)\b',
             r'\b(debug|fix|error|bug|refactor|optimize)\b',
             r'\b(python|javascript|java|c\+\+|rust|go|sql)\b',
             r'\b(algorithm|data structure|api|library|framework)\b',
@@ -96,30 +116,15 @@ class ModelRouter:
             r'\b(solution|problem solving|complex|difficult)\b',
         ]
 
-        # Research patterns
-        research_patterns = [
-            r'\b(research|investigate|find information|search for|lookup)\b',
-            r'\b(summarize|synthesis|compile|gather)\b',
-            r'\b(latest|recent|current|trends|news)\b',
-            r'\b(documentation|docs|reference|manual)\b',
-        ]
-
-        # Creative patterns
-        creative_patterns = [
-            r'\b(write|compose|create|generate|story|poem|article)\b',
-            r'\b(creative|imaginative|original|innovative)\b',
-            r'\b(brainstorm|ideas|concepts|inspiration)\b',
-        ]
-
-        # Check patterns in order of specificity
-        if any(re.search(pattern, prompt_lower) for pattern in coding_patterns):
-            return TaskType.CODING
+        # Check patterns in order of specificity (most specific first)
+        if any(re.search(pattern, prompt_lower) for pattern in creative_patterns):
+            return TaskType.CREATIVE
 
         if any(re.search(pattern, prompt_lower) for pattern in research_patterns):
             return TaskType.RESEARCH
 
-        if any(re.search(pattern, prompt_lower) for pattern in creative_patterns):
-            return TaskType.CREATIVE
+        if any(re.search(pattern, prompt_lower) for pattern in coding_patterns):
+            return TaskType.CODING
 
         if any(re.search(pattern, prompt_lower) for pattern in complex_patterns):
             return TaskType.COMPLEX_REASONING
