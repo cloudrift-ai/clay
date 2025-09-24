@@ -166,7 +166,7 @@ class ClaySession:
                 if self.append_system_prompt:
                     constraints["system_prompt"] = self.append_system_prompt
 
-                result = await self.clay_orchestrator.process_task(message, constraints)
+                result = await self.clay_orchestrator.process_task(message)
 
 
                 if show_progress:
@@ -264,56 +264,11 @@ class ClaySession:
 
     def _format_orchestrator_success(self, result: dict) -> str:
         """Format successful orchestrator result into readable response."""
-        lines = []
-
-        # Basic completion message
-        lines.append("✅ Task completed successfully!")
-
-        # Add duration info
-        duration = result.get("duration", 0)
-        if duration > 0:
-            lines.append(f"⏱️  Duration: {duration:.1f} seconds")
-
-        # Add retry info if any
-        retry_count = result.get("retry_count", 0)
-        if retry_count > 0:
-            lines.append(f"🔄 Retries: {retry_count}")
-
-        # Add artifacts summary
-        artifacts = result.get("artifacts", {})
-        if artifacts:
-            lines.append("\n📋 Summary:")
-
-            if "plan" in artifacts:
-                plan = artifacts["plan"]
-                step_count = len(plan.get("steps", []))
-                lines.append(f"  • Created plan with {step_count} steps")
-
-            if "diffs" in artifacts and artifacts["diffs"]:
-                diff_count = len(artifacts["diffs"])
-                lines.append(f"  • Applied {diff_count} patch(es)")
-
-            if "full_test_results" in artifacts:
-                test_results = artifacts["full_test_results"]
-                if test_results.get("passed"):
-                    lines.append("  • ✅ All tests passing")
-                else:
-                    failed = len(test_results.get("failures", []))
-                    lines.append(f"  • ❌ {failed} test(s) failing")
-
-            if "format_lint_results" in artifacts:
-                format_lint = artifacts["format_lint_results"]
-                if artifacts.get("format_lint_clean"):
-                    lines.append("  • ✅ Format and lint checks passed")
-                else:
-                    lines.append("  • ⚠️  Format/lint issues detected")
-
-        # Add state information
-        final_state = result.get("final_state")
-        if final_state and final_state != "DONE":
-            lines.append(f"\n⚠️  Final state: {final_state}")
-
-        return "\n".join(lines)
+        # For bare-minimum orchestrator, just return the LLM response
+        response = result.get("response", "")
+        if response:
+            return response
+        return "✅ Task completed successfully!"
 
     def _generate_response_from_result(self, result, message: str) -> str:
         """Generate meaningful response when output is empty but tools were executed."""
@@ -495,12 +450,12 @@ async def run_analysis_mode(session: ClaySession, output_format: str):
     """Run in analysis mode - analyze project structure without changes."""
     import json
 
-    if session.use_orchestrator and session.clay_orchestrator:
-        console.print("[cyan]Analyzing project with Clay orchestrator...[/cyan]")
-        result = await session.clay_orchestrator.analyze_project()
-    else:
-        console.print("[yellow]Orchestrator not available, using basic analysis[/yellow]")
-        result = {"status": "error", "error": "Orchestrator not initialized"}
+    console.print("[cyan]Basic project analysis...[/cyan]")
+    result = {
+        "status": "success",
+        "working_dir": str(session.working_dir),
+        "message": "Project analysis with bare-minimum orchestrator"
+    }
 
     if output_format == "json":
         console.print(json.dumps(result, indent=2))

@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from enum import Enum
 
-from .base import Agent, AgentResult, AgentContext, AgentStatus
+from .base import Agent, AgentResult, AgentContext
 
 
 class TaskPriority(Enum):
@@ -73,52 +73,3 @@ class AgentOrchestrator:
         task.result = result
         return result
 
-    async def process_tasks(self, context: AgentContext) -> None:
-        """Process tasks from the queue."""
-        while True:
-            if len(self.running_tasks) >= self.max_concurrent:
-                await asyncio.sleep(0.1)
-                continue
-
-            try:
-                _, task = await asyncio.wait_for(
-                    self.task_queue.get(),
-                    timeout=1.0
-                )
-
-                if await self._can_run_task(task):
-                    task_coro = self.run_task(task, context)
-                    self.running_tasks[task.id] = asyncio.create_task(task_coro)
-                else:
-                    await self.task_queue.put((task.priority.value, task))
-
-            except asyncio.TimeoutError:
-                continue
-
-    async def _can_run_task(self, task: Task) -> bool:
-        """Check if a task's dependencies are complete."""
-        for dep_id in task.dependencies:
-            if dep_id not in self.tasks:
-                return False
-            dep_task = self.tasks[dep_id]
-            if dep_task.result is None or dep_task.result.status != AgentStatus.COMPLETE:
-                return False
-        return True
-
-    async def wait_for_task(self, task_id: str) -> AgentResult:
-        """Wait for a task to complete."""
-        if task_id not in self.tasks:
-            raise ValueError(f"Task {task_id} not found")
-
-        task = self.tasks[task_id]
-        while task.result is None:
-            await asyncio.sleep(0.1)
-
-        return task.result
-
-    async def wait_all(self) -> Dict[str, AgentResult]:
-        """Wait for all tasks to complete."""
-        results = {}
-        for task_id in self.tasks:
-            results[task_id] = await self.wait_for_task(task_id)
-        return results
