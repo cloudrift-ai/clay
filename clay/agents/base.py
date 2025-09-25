@@ -56,6 +56,34 @@ class Agent(ABC):
         for tool in tools:
             self.register_tool(tool)
 
+    def get_tools_description(self, include_capabilities: bool = False, include_use_cases: bool = False) -> str:
+        """Build a description of available tools for use in system prompts."""
+        tools_desc = []
+        for tool_name, tool in self.tools.items():
+            desc = f"- {tool_name}: {tool.description}"
+
+            if include_capabilities and tool.capabilities:
+                desc += f"\n  Capabilities: {', '.join(tool.capabilities)}"
+
+            if include_use_cases and tool.use_cases:
+                desc += f"\n  Use cases: {', '.join(tool.use_cases)}"
+
+            tools_desc.append(desc)
+
+        return "\n".join(tools_desc)
+
+    def get_tools_summary(self) -> Dict[str, Dict[str, Any]]:
+        """Get a structured summary of available tools."""
+        return {
+            tool_name: {
+                "description": tool.description,
+                "capabilities": tool.capabilities,
+                "use_cases": tool.use_cases,
+                "schema": tool.get_schema()
+            }
+            for tool_name, tool in self.tools.items()
+        }
+
     @abstractmethod
     async def think(self, prompt: str, context: AgentContext) -> AgentResult:
         """Process a prompt and decide on actions."""

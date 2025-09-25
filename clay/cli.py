@@ -18,10 +18,6 @@ from .agents import (
     CodingAgent
 )
 from .config import get_config
-from .tools import (
-    ReadTool, WriteTool, EditTool, GlobTool,
-    BashTool, GrepTool, SearchTool
-)
 from .orchestrator import ClayOrchestrator
 from .trace import (
     trace_operation,
@@ -54,17 +50,8 @@ class ClaySession:
 
     def _setup_agents_and_orchestrator(self):
         """Initialize agents and ClayOrchestrator."""
-        # Create coding agent
+        # Create coding agent (tools are registered automatically in constructor)
         coding_agent = CodingAgent()
-        coding_agent.register_tools([
-            ReadTool(),
-            WriteTool(),
-            EditTool(),
-            GlobTool(),
-            BashTool(),
-            GrepTool(),
-            SearchTool()
-        ])
 
         # Store the primary coding agent for orchestrator use
         self.primary_agent = coding_agent

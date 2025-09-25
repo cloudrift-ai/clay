@@ -5,6 +5,10 @@ import json
 
 from .base import Agent, AgentResult, AgentContext, AgentStatus
 from ..llm import completion
+from ..tools import (
+    ReadTool, WriteTool, EditTool, GlobTool,
+    BashTool, GrepTool, SearchTool
+)
 
 
 class CodingAgent(Agent):
@@ -31,6 +35,17 @@ class CodingAgent(Agent):
             description=self.description
         )
 
+        # Register essential coding tools
+        self.register_tools([
+            ReadTool(),
+            WriteTool(),
+            EditTool(),
+            GlobTool(),
+            BashTool(),
+            GrepTool(),
+            SearchTool()
+        ])
+
     async def think(self, prompt: str, context: AgentContext) -> AgentResult:
         """Process the prompt and decide on coding actions."""
         system_prompt = self._build_system_prompt(context)
@@ -44,14 +59,12 @@ class CodingAgent(Agent):
 
     def _build_system_prompt(self, context: AgentContext) -> str:
         """Build the system prompt for the LLM."""
-        tools_desc = []
-        for tool_name, tool in self.tools.items():
-            tools_desc.append(f"- {tool_name}: {tool.description}")
+        tools_desc = self.get_tools_description()
 
         return f"""You are a coding assistant. You MUST use tools to perform actions. Always respond in JSON format.
 
 Available tools:
-{chr(10).join(tools_desc)}
+{tools_desc}
 
 Working directory: {context.working_directory}
 
