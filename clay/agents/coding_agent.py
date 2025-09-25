@@ -10,12 +10,11 @@ from ..llm import completion
 class CodingAgent(Agent):
     """Agent specialized for coding tasks."""
 
-    def __init__(self, model: str = "deepseek-ai/DeepSeek-V3"):
+    def __init__(self):
         super().__init__(
             name="coding_agent",
             description="Agent specialized for writing, editing, and debugging code"
         )
-        self.model = model
 
     async def think(self, prompt: str, context: AgentContext) -> AgentResult:
         """Process the prompt and decide on coding actions."""
@@ -24,7 +23,7 @@ class CodingAgent(Agent):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ]
-        response = await completion(model=self.model, messages=messages, temperature=0.2)
+        response = await completion(messages=messages, temperature=0.2)
         return self._parse_response(response['choices'][0]['message']['content'])
 
 

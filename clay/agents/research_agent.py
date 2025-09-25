@@ -9,12 +9,11 @@ from ..llm import completion
 class ResearchAgent(Agent):
     """Agent specialized for research and information gathering."""
 
-    def __init__(self, model: str = "deepseek-ai/DeepSeek-V3"):
+    def __init__(self):
         super().__init__(
             name="research_agent",
             description="Agent specialized for searching, analyzing, and gathering information"
         )
-        self.model = model
 
     async def think(self, prompt: str, context: AgentContext) -> AgentResult:
         """Process the prompt and decide on research actions."""
@@ -24,7 +23,7 @@ class ResearchAgent(Agent):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ]
-        response = await completion(model=self.model, messages=messages, temperature=0.3)
+        response = await completion(messages=messages, temperature=0.3)
 
         return self._parse_response(response['choices'][0]['message']['content'])
 

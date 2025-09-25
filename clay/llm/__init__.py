@@ -5,21 +5,30 @@ import json
 import aiohttp
 import asyncio
 from typing import AsyncIterator, Iterator, Dict, Any, List, Optional
+from ..config import get_config
 
 
 async def completion(
-    model: str,
     messages: List[Dict[str, str]],
     stream: bool = False,
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     **kwargs
 ) -> AsyncIterator[Dict[str, Any]] | Dict[str, Any]:
-    """Simple completion function mimicking LiteLLM interface."""
+    """Simple completion function using global config."""
 
-    api_key = os.environ.get("CLOUDRIFT_API_KEY")
+    config = get_config()
+    provider = config.get_default_provider()
+
+    if provider != "cloudrift":
+        raise ValueError(f"Unsupported provider: {provider}")
+
+    api_key, model = config.get_provider_credentials(provider)
     if not api_key:
-        raise ValueError("CLOUDRIFT_API_KEY environment variable is required")
+        raise ValueError("No API key found in configuration")
+
+    if not model:
+        model = "deepseek-ai/DeepSeek-V3"  # Default model
 
     url = "https://inference.cloudrift.ai/v1/chat/completions"
     headers = {

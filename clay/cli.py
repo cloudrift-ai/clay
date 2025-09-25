@@ -220,17 +220,6 @@ def cli(ctx: click.Context, print: bool, query: Optional[str]):
     if not sys.stdin.isatty():
         piped_input = sys.stdin.read().strip()
 
-    # Set API key from config if available
-    config = get_config()
-    default_provider = config.get_default_provider()
-    if default_provider == "cloudrift":
-        try:
-            api_key, model = config.get_provider_credentials(default_provider)
-            if api_key and not os.environ.get("CLOUDRIFT_API_KEY"):
-                os.environ["CLOUDRIFT_API_KEY"] = api_key
-        except Exception:
-            pass
-
     session = ClaySession()
 
     # Handle execution modes

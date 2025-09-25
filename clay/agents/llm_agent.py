@@ -9,9 +9,9 @@ from ..llm import completion
 class LLMAgent:
     """Generic LLM agent for various AI tasks."""
 
-    def __init__(self, model: str = "deepseek-ai/DeepSeek-V3"):
+    def __init__(self):
         """Initialize the LLM agent."""
-        self.model = model
+        pass
 
     async def analyze_task_complexity(self, prompt: str) -> str:
         """Analyze if a task is simple or complex."""
@@ -19,7 +19,7 @@ class LLMAgent:
             {"role": "system", "content": "You are a task complexity analyzer. Respond with ONLY 'COMPLEX' or 'SIMPLE' followed by a brief reason (max 20 words)."},
             {"role": "user", "content": prompt}
         ]
-        response = await completion(model=self.model, messages=messages, temperature=0.1)
+        response = await completion(messages=messages, temperature=0.1)
         return response['choices'][0]['message']['content'].strip()
 
     async def answer_query(self, query: str) -> str:
@@ -28,7 +28,7 @@ class LLMAgent:
             {"role": "system", "content": "You are a helpful assistant. Answer the question or query directly and concisely."},
             {"role": "user", "content": query}
         ]
-        response = await completion(model=self.model, messages=messages, temperature=0.2)
+        response = await completion(messages=messages, temperature=0.2)
         return response['choices'][0]['message']['content']
 
     async def create_plan(self, goal: str, context: Dict[str, Any], constraints: Dict[str, Any]) -> Dict[str, Any]:
@@ -44,7 +44,7 @@ Respond with a JSON object containing 'steps' (list of strings) and 'description
             {"role": "system", "content": "You are a coding planner. Create clear, actionable plans."},
             {"role": "user", "content": prompt}
         ]
-        response = await completion(model=self.model, messages=messages, temperature=0.3)
+        response = await completion(messages=messages, temperature=0.3)
 
         try:
             return json.loads(response['choices'][0]['message']['content'])
@@ -70,7 +70,7 @@ Generate a unified diff format or return the actual code/response if this is jus
             {"role": "system", "content": "You are a code generator. Create precise code changes or answer queries directly."},
             {"role": "user", "content": prompt}
         ]
-        response = await completion(model=self.model, messages=messages, temperature=0.2)
+        response = await completion(messages=messages, temperature=0.2)
         return response['choices'][0]['message']['content']
 
     async def suggest_repair(self, failure_context: Dict[str, Any], previous_attempts: List[str], plan: Dict[str, Any]) -> str:
@@ -86,7 +86,7 @@ Provide a concise repair strategy."""
             {"role": "system", "content": "You are a debugging assistant. Suggest precise fixes."},
             {"role": "user", "content": prompt}
         ]
-        response = await completion(model=self.model, messages=messages, temperature=0.3)
+        response = await completion(messages=messages, temperature=0.3)
         return response['choices'][0]['message']['content']
 
     async def generate_response(self, prompt: str, system_prompt: Optional[str] = None, temperature: float = 0.5) -> str:
@@ -95,5 +95,5 @@ Provide a concise repair strategy."""
             {"role": "system", "content": system_prompt or "You are a helpful AI assistant."},
             {"role": "user", "content": prompt}
         ]
-        response = await completion(model=self.model, messages=messages, temperature=temperature)
+        response = await completion(messages=messages, temperature=temperature)
         return response['choices'][0]['message']['content']
