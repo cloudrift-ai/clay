@@ -1,11 +1,11 @@
 """Generic LLM agent for task analysis and query answering."""
 
-from typing import Optional
-
+from .base import Agent
 from ..llm import completion
+from ..runtime import Plan
 
 
-class LLMAgent:
+class LLMAgent(Agent):
     """Generic LLM agent for various AI tasks."""
 
     name = "llm_agent"
@@ -23,13 +23,17 @@ class LLMAgent:
 
     def __init__(self):
         """Initialize the LLM agent."""
-        pass
+        super().__init__(name=self.name, description=self.description)
 
-    async def think(self, prompt: str, system_prompt: Optional[str] = None, temperature: float = 0.5) -> str:
-        """Think about and respond to a prompt."""
+    async def think(self, plan: Plan) -> Plan:
+        """Think about and respond to a plan."""
+        prompt = plan.output or plan.description or "No prompt provided"
         messages = [
-            {"role": "system", "content": system_prompt or "You are a helpful AI assistant."},
+            {"role": "system", "content": "You are a helpful AI assistant."},
             {"role": "user", "content": prompt}
         ]
-        response = await completion(messages=messages, temperature=temperature)
-        return response['choices'][0]['message']['content']
+        response = await completion(messages=messages, temperature=0.5)
+        return Plan.create_simple_response(
+            output=response['choices'][0]['message']['content'],
+            description=f"LLM response to: {prompt[:50]}..."
+        )

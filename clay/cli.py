@@ -14,11 +14,10 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 
-from .agents import (
-    CodingAgent
-)
+# Agents are now constructed internally by ClayOrchestrator
 from .config import get_config
 from .orchestrator import ClayOrchestrator
+from .runtime import Plan
 from .trace import (
     trace_operation,
     save_trace_file, set_session_id
@@ -49,18 +48,9 @@ class ClaySession:
         set_session_id(self.session_id)
 
     def _setup_agents_and_orchestrator(self):
-        """Initialize agents and ClayOrchestrator."""
-        # Create coding agent (tools are registered automatically in constructor)
-        coding_agent = CodingAgent()
-
-        # Store the primary coding agent for orchestrator use
-        self.primary_agent = coding_agent
-
-        # Initialize ClayOrchestrator
-        self.clay_orchestrator = ClayOrchestrator(
-            agent=self.primary_agent,
-            working_dir=self.working_dir
-        )
+        """Initialize ClayOrchestrator with autonomous agent selection."""
+        # Initialize ClayOrchestrator (now constructs all agents internally)
+        self.clay_orchestrator = ClayOrchestrator()
 
         # New Claude Code compatible options
         self.allowed_tools = None
@@ -117,26 +107,17 @@ class ClaySession:
                 if self.append_system_prompt:
                     constraints["system_prompt"] = self.append_system_prompt
 
-                result = await self.clay_orchestrator.process_task(message)
+                plan = await self.clay_orchestrator.process_task(message)
 
 
                 if show_progress:
                     progress.update(task, completed=True)
 
-                # Format response based on result
-                if result.get("status") == "success":
-                    response = self._format_orchestrator_success(result)
-                elif result.get("status") == "error":
-                    response = f"Error: {result.get('error', 'Unknown error occurred')}"
+                # Format response based on plan result
+                if plan.error:
+                    response = f"Error: {plan.error}"
                 else:
-                    # Check if this was a query-only task
-                    artifacts = result.get('artifacts', {})
-                    if artifacts.get('query_only'):
-                        response = artifacts.get('response', 'Query completed')
-                    elif artifacts.get('final_diff'):
-                        response = "✅ Task completed successfully!"
-                    else:
-                        response = f"Task completed with status: {result.get('status', 'unknown')}"
+                    response = self._format_plan_success(plan)
 
             except Exception as e:
                 if show_progress:
@@ -147,10 +128,10 @@ class ClaySession:
         return response
 
 
-    def _format_orchestrator_success(self, result: dict) -> str:
-        """Format successful orchestrator result into readable response."""
-        # For bare-minimum orchestrator, just return the LLM response
-        response = result.get("response", "")
+    def _format_plan_success(self, plan: Plan) -> str:
+        """Format successful plan result into readable response."""
+        # Return the plan's output or a success message
+        response = plan.output or ""
         if response:
             return response
         return "✅ Task completed successfully!"

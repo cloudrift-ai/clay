@@ -1,47 +1,103 @@
-"""Bare-minimum orchestrator that just invokes LLM agent."""
+"""Clay orchestrator that uses agents to create plans and runtime to execute them."""
 
 from pathlib import Path
 from typing import Dict, Any
 
 from ..agents.llm_agent import LLMAgent
+from ..agents.coding_agent import CodingAgent
+from ..runtime import PlanExecutor, Plan
+from ..llm import completion
 
 
 class ClayOrchestrator:
-    """Minimal orchestrator that just invokes the LLM agent."""
+    """Orchestrator that coordinates agents and plan execution."""
 
-    def __init__(self, agent, working_dir: Path):
-        """Initialize the orchestrator with LLM agent."""
-        self.working_dir = working_dir
-        self.agent = agent
-        self.llm_agent = LLMAgent()
+    def __init__(self):
+        """Initialize the orchestrator with all available agents."""
+        # Initialize all available agents
+        self.agents = {
+            'llm_agent': LLMAgent(),
+            'coding_agent': CodingAgent()
+        }
 
-    async def process_task(self, goal: str) -> Dict[str, Any]:
-        """Process a task by directly invoking the LLM agent."""
+        # Create plan executors for each agent's tools
+        self.plan_executors = {}
+        for agent_name, agent in self.agents.items():
+            tools = agent.tools if hasattr(agent, 'tools') else {}
+            self.plan_executors[agent_name] = PlanExecutor(tools)
 
-        if not self.working_dir.exists():
-            raise ValueError(f"Working directory {self.working_dir} does not exist")
+    async def select_agent(self, goal: str) -> str:
+        """Use LLM to select the best agent for the task."""
+        agent_descriptions = self._build_agent_descriptions()
+        available_agent_names = list(self.agents.keys())
 
-        try:
-            # Generate response using LLM agent
-            response = await self.llm_agent.think(
-                prompt=goal,
-                system_prompt="You are a helpful coding assistant.",
-                temperature=0.2
+        system_prompt = f"""You are an agent router that selects the best agent for a given task.
+
+Available agents:
+{agent_descriptions}
+
+Choose the most appropriate agent for the task. Respond with ONLY the agent name from: {', '.join(available_agent_names)}.
+
+Selection criteria are automatically derived from each agent's description and capabilities."""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Task: {goal}"}
+        ]
+
+        response = await completion(messages=messages, temperature=0.1)
+        selected_agent = response['choices'][0]['message']['content'].strip().lower()
+
+        # Validate and default to first available agent if unclear
+        if selected_agent not in self.agents:
+            # Default to first available agent for ambiguous cases
+            selected_agent = list(self.agents.keys())[0]
+
+        return selected_agent
+
+    def _build_agent_descriptions(self) -> str:
+        """Build a description of available agents."""
+        descriptions = []
+        for agent_name, agent in self.agents.items():
+            description = f"- {agent_name}: {agent.description}"
+            if hasattr(agent, 'capabilities'):
+                description += f"\n  Capabilities: {', '.join(agent.capabilities)}"
+            descriptions.append(description)
+        return "\n\n".join(descriptions)
+
+    async def process_task(self, goal: str) -> Plan:
+        """Process a task using agent selection, planning, and runtime execution."""
+
+        working_dir = Path.cwd()
+        if not working_dir.exists():
+            return Plan.create_error_response(
+                error=f"Working directory {working_dir} does not exist",
+                description="Working directory validation failed"
             )
 
-            return {
-                "task_id": f"task_{hash(goal) % 10000}",
-                "goal": goal,
-                "status": "success",
-                "response": response,
-                "working_dir": str(self.working_dir)
-            }
+        try:
+            # Select the best agent for the task
+            selected_agent_name = await self.select_agent(goal)
+            selected_agent = self.agents[selected_agent_name]
+
+            # Run the selected agent
+            plan = await selected_agent.run(goal)
+
+            if plan.error:
+                return plan  # Return the error plan directly
+
+            # If plan has steps, execute them using the appropriate executor
+            if plan.steps:
+                plan_executor = self.plan_executors[selected_agent_name]
+                execution_result = await plan_executor.execute_plan(plan)
+                # The executed plan is returned by the executor, containing all step results
+                return execution_result["plan"]
+            else:
+                # No plan needed, just return the simple response plan
+                return plan
 
         except Exception as e:
-            return {
-                "task_id": f"task_{hash(goal) % 10000}",
-                "goal": goal,
-                "status": "error",
-                "error": str(e),
-                "working_dir": str(self.working_dir)
-            }
+            return Plan.create_error_response(
+                error=str(e),
+                description=f"Orchestrator error processing: {goal[:50]}..."
+            )

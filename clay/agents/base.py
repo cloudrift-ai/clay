@@ -1,12 +1,12 @@
 """Base agent class and utilities."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from enum import Enum
 import asyncio
 
-from ..tools.base import Tool, ToolResult, ToolStatus
+from ..tools.base import Tool
+from ..runtime import Plan, PlanStep, PlanStatus
 from ..trace import trace_operation
 
 
@@ -18,23 +18,8 @@ class AgentStatus(Enum):
     ERROR = "error"
 
 
-@dataclass
-class AgentContext:
-    """Context for agent execution."""
-    working_directory: str
-    conversation_history: List[Dict[str, Any]]
-    available_tools: List[Tool]
-    metadata: Dict[str, Any]
 
 
-@dataclass
-class AgentResult:
-    """Result from agent execution."""
-    status: AgentStatus
-    output: Optional[str] = None
-    error: Optional[str] = None
-    tool_calls: List[Dict[str, Any]] = None
-    metadata: Optional[Dict[str, Any]] = None
 
 
 class Agent(ABC):
@@ -44,7 +29,6 @@ class Agent(ABC):
         self.name = name
         self.description = description
         self.status = AgentStatus.IDLE
-        self.context: Optional[AgentContext] = None
         self.tools: Dict[str, Tool] = {}
 
     def register_tool(self, tool: Tool) -> None:
@@ -84,51 +68,15 @@ class Agent(ABC):
             for tool_name, tool in self.tools.items()
         }
 
+
     @abstractmethod
-    async def think(self, prompt: str, context: AgentContext) -> AgentResult:
-        """Process a prompt and decide on actions."""
+    async def think(self, plan: Plan) -> Plan:
+        """Process a plan and decide on actions."""
         pass
 
     @trace_operation
-    async def execute_tool(self, tool_name: str, parameters: Dict[str, Any]) -> ToolResult:
-        """Execute a tool with given parameters."""
-        if tool_name not in self.tools:
-            raise ValueError(f"Tool {tool_name} not found")
-
-        tool = self.tools[tool_name]
-
-
-        # Print tool execution status
-        from rich.console import Console
-        console = Console()
-        console.print(f"[cyan]➤ Executing {tool_name}[/cyan]", end="")
-
-        # Print tool-specific summary
-        if tool_name == "bash":
-            cmd = parameters.get("command", "")
-            console.print(f": [yellow]{cmd[:80]}{'...' if len(cmd) > 80 else ''}[/yellow]")
-        elif tool_name == "read":
-            console.print(f": [green]{parameters.get('file_path', '')}[/green]")
-        elif tool_name == "write":
-            console.print(f": [green]{parameters.get('file_path', '')}[/green]")
-        elif tool_name == "edit":
-            console.print(f": [green]{parameters.get('file_path', '')}[/green]")
-        elif tool_name == "glob":
-            console.print(f": [yellow]{parameters.get('pattern', '')}[/yellow]")
-        elif tool_name == "grep":
-            console.print(f": [yellow]{parameters.get('pattern', '')}[/yellow]")
-        else:
-            console.print()
-
-        result = await tool.run(**parameters)
-
-
-        return result
-
-    @trace_operation
-    async def run(self, prompt: str, context: AgentContext) -> AgentResult:
-        """Run the agent with a prompt."""
-        self.context = context
+    async def run(self, prompt: str) -> Plan:
+        """Run the agent with a prompt to produce a plan."""
         self.status = AgentStatus.THINKING
 
         # Print agent status
@@ -139,30 +87,12 @@ class Agent(ABC):
         console.print(f"\n[bold blue]🤖 {self.name} Agent[/bold blue]: [italic]{display_prompt}[/italic]\n")
 
         try:
-            result = await self.think(prompt, context)
-
-            if result.tool_calls:
-                self.status = AgentStatus.RUNNING_TOOL
-                tool_results = []
-
-                for call in result.tool_calls:
-                    tool_result = await self.execute_tool(
-                        call["name"],
-                        call["parameters"]
-                    )
-                    tool_results.append({
-                        "tool": call["name"],
-                        "result": tool_result.to_dict()
-                    })
-
-                result.metadata = {"tool_results": tool_results}
-
+            # Create initial plan with the prompt
+            initial_plan = Plan.create_simple_response(prompt, f"Initial prompt: {prompt[:50]}...")
+            plan = await self.think(initial_plan)
             self.status = AgentStatus.COMPLETE
-            return result
+            return plan
 
         except Exception as e:
             self.status = AgentStatus.ERROR
-            return AgentResult(
-                status=AgentStatus.ERROR,
-                error=str(e)
-            )
+            return Plan.create_error_response(str(e))
