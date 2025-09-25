@@ -241,8 +241,8 @@ async def run_headless_mode(session: ClaySession, query: Optional[str], piped_in
 
     response = await session.process_message(prompt)
 
-
-    console.print(response)
+    # Don't print response since ClayOrchestrator handles all printing
+    # console.print(response)
 
     # Save trace file
     try:
@@ -267,7 +267,8 @@ async def run_interactive_mode(session: ClaySession, initial_query: Optional[str
     # Handle initial query if provided
     if initial_query:
         response = await session.process_message(initial_query)
-        console.print(Markdown(response))
+        # Don't print response since ClayOrchestrator handles all printing
+        # console.print(Markdown(response))
 
 
     while True:
@@ -288,7 +289,8 @@ async def run_interactive_mode(session: ClaySession, initial_query: Optional[str
                 continue
 
             response = await session.process_message(user_input)
-            console.print(Markdown(response))
+            # Don't print response since ClayOrchestrator handles all printing
+            # console.print(Markdown(response))
 
         except KeyboardInterrupt:
             console.print("\n[cyan]Use 'exit' to quit[/cyan]")

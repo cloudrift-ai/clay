@@ -83,21 +83,35 @@ Selection criteria are automatically derived from each agent's description and c
             # Run the selected agent
             plan = await selected_agent.run(goal)
 
+            # Print plan execution start
+            plan.print_execution_start()
+
             if plan.error:
+                plan.print_completion()
                 return plan  # Return the error plan directly
 
             # If plan has steps, execute them using the appropriate executor
             if plan.steps:
                 plan_executor = self.plan_executors[selected_agent_name]
                 execution_result = await plan_executor.execute_plan(plan)
-                # The executed plan is returned by the executor, containing all step results
-                return execution_result["plan"]
+                executed_plan = execution_result["plan"]
+
+                # Print step executions
+                for step in executed_plan.steps:
+                    executed_plan.print_step_execution(step)
+
+                # Print completion
+                executed_plan.print_completion()
+                return executed_plan
             else:
                 # No plan needed, just return the simple response plan
+                plan.print_completion()
                 return plan
 
         except Exception as e:
-            return Plan.create_error_response(
+            error_plan = Plan.create_error_response(
                 error=str(e),
                 description=f"Orchestrator error processing: {goal[:50]}..."
             )
+            error_plan.print_completion()
+            return error_plan

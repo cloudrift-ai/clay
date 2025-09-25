@@ -113,27 +113,23 @@ class PlanExecutor:
 
         tool = self.tools[tool_name]
 
-        # Print tool execution status
-        from rich.console import Console
-        console = Console()
-        console.print(f"[cyan]➤ Executing {tool_name}[/cyan]", end="")
+        result = await tool.run(**parameters)
 
-        # Print tool-specific summary
+        # Add execution info to result metadata for display purposes
+        if not result.metadata:
+            result.metadata = {}
+        result.metadata["tool_name"] = tool_name
+
+        # Add tool-specific execution info
         if tool_name == "bash":
             cmd = parameters.get("command", "")
-            console.print(f": [yellow]{cmd[:80]}{'...' if len(cmd) > 80 else ''}[/yellow]")
-        elif tool_name == "read":
-            console.print(f": [green]{parameters.get('file_path', '')}[/green]")
-        elif tool_name == "write":
-            console.print(f": [green]{parameters.get('file_path', '')}[/green]")
-        elif tool_name == "edit":
-            console.print(f": [green]{parameters.get('file_path', '')}[/green]")
-        elif tool_name == "glob":
-            console.print(f": [yellow]{parameters.get('pattern', '')}[/yellow]")
-        elif tool_name == "grep":
-            console.print(f": [yellow]{parameters.get('pattern', '')}[/yellow]")
+            result.metadata["execution_info"] = f"➤ Executing {tool_name}: {cmd[:80]}{'...' if len(cmd) > 80 else ''}"
+        elif tool_name in ["read", "write", "edit"]:
+            file_path = parameters.get('file_path', '')
+            result.metadata["execution_info"] = f"➤ Executing {tool_name}: {file_path}"
+        elif tool_name in ["glob", "grep"]:
+            pattern = parameters.get('pattern', '')
+            result.metadata["execution_info"] = f"➤ Executing {tool_name}: {pattern}"
         else:
-            console.print()
-
-        result = await tool.run(**parameters)
+            result.metadata["execution_info"] = f"➤ Executing {tool_name}"
         return result

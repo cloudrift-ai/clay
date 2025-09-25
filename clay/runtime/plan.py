@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from enum import Enum
 import json
+from rich.console import Console
+from rich.panel import Panel
 
 
 class PlanStatus(Enum):
@@ -224,3 +226,42 @@ class Plan:
                 output=data.get("output", "Task completed"),
                 description=data.get("thought", "Simple response")
             )
+
+    def print_execution_start(self):
+        """Print plan execution start information."""
+        console = Console()
+
+        # Print agent information if available
+        if self.metadata and "agent_name" in self.metadata:
+            agent_name = self.metadata["agent_name"]
+            agent_prompt = self.metadata.get("agent_prompt", "")
+            console.print(f"\n[bold blue]🤖 {agent_name} Agent[/bold blue]: [italic]{agent_prompt}[/italic]\n")
+
+    def print_step_execution(self, step: "PlanStep"):
+        """Print step execution information."""
+        console = Console()
+
+        if step.result and isinstance(step.result, dict) and "metadata" in step.result:
+            metadata = step.result.get("metadata", {})
+            execution_info = metadata.get("execution_info")
+            if execution_info:
+                console.print(f"[cyan]{execution_info}[/cyan]")
+
+            # Print tool result summary if available
+            if "summary" in metadata:
+                console.print(f"  [dim]→ {metadata['summary']}[/dim]")
+
+    def print_completion(self):
+        """Print plan completion information."""
+        console = Console()
+
+        if self.output and not self.steps:
+            # Simple response plan
+            console.print(self.output)
+        elif self.error:
+            # Error plan
+            console.print(f"[red]Error: {self.error}[/red]")
+        elif self.steps:
+            # Multi-step plan completion
+            if self.output:
+                console.print(self.output)

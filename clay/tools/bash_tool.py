@@ -219,10 +219,6 @@ class BashTool(Tool):
                 stdout_str = stdout.decode('utf-8', errors='replace')
                 stderr_str = stderr.decode('utf-8', errors='replace')
 
-                # Print summary to console
-                from rich.console import Console
-                console = Console()
-
                 result = BashToolResult(
                     status=ToolStatus.SUCCESS if process.returncode == 0 else ToolStatus.ERROR,
                     command=command,
@@ -235,8 +231,8 @@ class BashTool(Tool):
                     metadata={"return_code": process.returncode}
                 )
 
-                # Print summary using the result's get_summary method
-                console.print(f"  [dim]→ {result.get_summary()}[/dim]")
+                # Add summary to metadata after result is created
+                result.metadata["summary"] = result.get_summary()
 
                 return result
 

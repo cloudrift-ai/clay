@@ -101,20 +101,25 @@ If no tools are needed for information-only responses:
         """Run the agent with a prompt to produce a plan."""
         self.status = AgentStatus.THINKING
 
-        # Print agent status
-        from rich.console import Console
-        console = Console()
-        # Truncate prompt for display
-        display_prompt = prompt[:100] + "..." if len(prompt) > 100 else prompt
-        console.print(f"\n[bold blue]🤖 {self.name} Agent[/bold blue]: [italic]{display_prompt}[/italic]\n")
-
         try:
             # Create initial plan with the prompt
             initial_plan = Plan.create_simple_response(prompt, f"Initial prompt: {prompt[:50]}...")
             plan = await self.think(initial_plan)
+
+            # Add agent information to plan metadata
+            if not plan.metadata:
+                plan.metadata = {}
+            plan.metadata["agent_name"] = self.name
+            plan.metadata["agent_prompt"] = prompt[:100] + "..." if len(prompt) > 100 else prompt
+
             self.status = AgentStatus.COMPLETE
             return plan
 
         except Exception as e:
             self.status = AgentStatus.ERROR
-            return Plan.create_error_response(str(e))
+            error_plan = Plan.create_error_response(str(e))
+            if not error_plan.metadata:
+                error_plan.metadata = {}
+            error_plan.metadata["agent_name"] = self.name
+            error_plan.metadata["agent_prompt"] = prompt[:100] + "..." if len(prompt) > 100 else prompt
+            return error_plan
