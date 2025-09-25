@@ -98,36 +98,97 @@ class BashTool(Tool):
     def __init__(self, timeout: int = 120):
         super().__init__(
             name="bash",
-            description="Execute shell commands and scripts with configurable timeout and working directory support",
+            description="Execute shell commands and scripts for all development tasks including file operations, code management, and system tasks",
             capabilities=[
-                "Run any shell command or script",
-                "Capture stdout and stderr output",
-                "Set custom working directories",
-                "Configure execution timeouts",
-                "Handle command failures gracefully",
-                "Support complex shell operations (pipes, redirects, etc.)"
+                "Create files: cat > file.py << 'EOF' ... EOF",
+                "Read files: cat file.py, head file.py, tail file.py",
+                "Edit files: sed, awk, or text editors like nano/vim",
+                "List files: ls, find, locate",
+                "Run commands: python, npm, git, make, etc.",
+                "File operations: cp, mv, rm, chmod, mkdir",
+                "Search text: grep, ripgrep (rg)",
+                "Process management and system queries"
             ],
             use_cases=[
-                "Run build and compilation commands",
-                "Execute test suites and scripts",
-                "Install packages and dependencies",
-                "Run git commands and version control",
-                "Execute system administration tasks",
-                "Launch applications and services",
-                "Perform file operations and system queries"
+                "Create Python/JavaScript/any code files",
+                "Read and analyze existing code files",
+                "Edit configuration files and scripts",
+                "Run build, test, and deployment commands",
+                "Execute git operations and version control",
+                "Install packages and manage dependencies",
+                "Perform system administration tasks",
+                "Search through codebases and logs"
             ]
         )
         self.default_timeout = timeout
+
+    def get_example_usage(self) -> str:
+        """Get example usage for the bash tool with multiple practical examples."""
+        examples = [
+            {
+                "tool_name": "bash",
+                "parameters": {
+                    "command": "ls -la"
+                },
+                "description": "List all files in current directory with details"
+            },
+            {
+                "tool_name": "bash",
+                "parameters": {
+                    "command": "cat > hello.py << 'EOF'\nprint('Hello, World!')\nEOF",
+                    "working_dir": "/tmp"
+                },
+                "description": "Create a Python file in /tmp directory"
+            },
+            {
+                "tool_name": "bash",
+                "parameters": {
+                    "command": "python -m pytest tests/",
+                    "timeout": 300
+                },
+                "description": "Run tests with extended timeout"
+            },
+            {
+                "tool_name": "bash",
+                "parameters": {
+                    "command": "find . -name '*.py' | head -10"
+                },
+                "description": "Find Python files and show first 10 results"
+            }
+        ]
+        return json.dumps(examples, indent=2)
 
     def get_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "command": {"type": "string", "description": "Command to execute"},
-                "timeout": {"type": "integer", "description": "Timeout in seconds"},
-                "working_dir": {"type": "string", "description": "Working directory"}
+                "command": {
+                    "type": "string",
+                    "description": "Shell command to execute. Can be single commands like 'ls -la' or complex scripts with pipes, redirects, and multi-line heredocs",
+                    "examples": [
+                        "ls -la",
+                        "python script.py",
+                        "cat > file.txt << 'EOF'\ncontent here\nEOF",
+                        "find . -name '*.py' | grep test | head -5",
+                        "git status && git diff --name-only"
+                    ]
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout in seconds for command execution (default: 120)",
+                    "default": 120,
+                    "minimum": 1,
+                    "maximum": 3600,
+                    "examples": [30, 120, 300]
+                },
+                "working_dir": {
+                    "type": "string",
+                    "description": "Working directory path where command should be executed (default: current directory)",
+                    "examples": ["/tmp", "/home/user/project", ".", "../parent"]
+                }
             },
-            "required": ["command"]
+            "required": ["command"],
+            "additionalProperties": False
         }
 
     @trace_operation

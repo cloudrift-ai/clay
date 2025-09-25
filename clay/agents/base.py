@@ -40,21 +40,43 @@ class Agent(ABC):
         for tool in tools:
             self.register_tool(tool)
 
-    def get_tools_description(self, include_capabilities: bool = False, include_use_cases: bool = False) -> str:
+    def get_tools_description(self, include_capabilities: bool = False, include_use_cases: bool = False, include_schema: bool = False) -> str:
         """Build a description of available tools for use in system prompts."""
         tools_desc = []
         for tool_name, tool in self.tools.items():
-            desc = f"- {tool_name}: {tool.description}"
-
-            if include_capabilities and tool.capabilities:
-                desc += f"\n  Capabilities: {', '.join(tool.capabilities)}"
-
-            if include_use_cases and tool.use_cases:
-                desc += f"\n  Use cases: {', '.join(tool.use_cases)}"
-
+            desc = tool.get_detailed_description(
+                include_capabilities=include_capabilities,
+                include_use_cases=include_use_cases,
+                include_schema=include_schema
+            )
             tools_desc.append(desc)
 
         return "\n".join(tools_desc)
+
+    def get_json_format_instructions(self) -> str:
+        """Get standard JSON format instructions for tool-using agents."""
+        return """ALWAYS respond with valid JSON in this exact format:
+
+{
+    "thought": "I need to analyze the task and decide what tools to use",
+    "plan": [
+        {
+            "tool_name": "tool_name_here",
+            "parameters": {
+                "param1": "value1",
+                "param2": "value2"
+            },
+            "description": "What this step accomplishes"
+        }
+    ],
+    "output": "Summary of the plan created"
+}
+
+If no tools are needed for information-only responses:
+{
+    "thought": "This is a question that doesn't require tool usage",
+    "output": "Here is the information you requested..."
+}"""
 
     def get_tools_summary(self) -> Dict[str, Dict[str, Any]]:
         """Get a structured summary of available tools."""
