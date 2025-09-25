@@ -14,14 +14,12 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 
 from .agents import (
-    CodingAgent, ResearchAgent,
-    AgentOrchestrator, AgentContext
+    CodingAgent
 )
 from .config import get_config
 from .tools import (
     ReadTool, WriteTool, EditTool, GlobTool,
-    BashTool, GrepTool, SearchTool,
-    WebFetchTool, WebSearchTool
+    BashTool, GrepTool, SearchTool
 )
 from .llm import create_llm_provider, get_default_provider
 from .orchestrator import ClayOrchestrator
@@ -37,20 +35,17 @@ console = Console()
 class ClaySession:
     """Main session handler for Clay CLI."""
 
-    def __init__(self, llm_provider=None, working_dir: str = ".", fast_mode: bool = False, session_id: Optional[str] = None,
-                 use_orchestrator: bool = True):
+    def __init__(self, llm_provider=None, working_dir: str = ".", fast_mode: bool = False, session_id: Optional[str] = None):
 
         self.llm_provider = llm_provider or get_default_provider()
         self.working_dir = Path(working_dir).resolve()
         self.fast_mode = fast_mode
-        self.use_orchestrator = use_orchestrator
-
-        # Initialize both orchestrators
-        self.agent_orchestrator = AgentOrchestrator()
-        self.clay_orchestrator = None
 
         # Track conversation history
         self.conversation_history = []
+
+        # Initialize agents and orchestrator
+        self._setup_agents_and_orchestrator()
 
         # Session management
         import uuid
@@ -59,36 +54,10 @@ class ClaySession:
         # Set trace session ID
         set_session_id(self.session_id)
 
-        # New Claude Code compatible options
-        self.allowed_tools = None
-        self.disallowed_tools = None
-        self.max_turns = None
-        self.verbose = False
-        self.append_system_prompt = None
-
-        self.setup_agents()
-
-        # Initialize Clay orchestrator if requested
-        if self.use_orchestrator and self.llm_provider:
-            try:
-                self.setup_clay_orchestrator()
-            except Exception as e:
-                console.print(f"[yellow]Warning: Failed to initialize Clay orchestrator: {e}[/yellow]")
-                console.print("[yellow]Falling back to legacy agent system[/yellow]")
-                self.use_orchestrator = False
-
-
-
-    def setup_agents(self):
-        """Initialize and configure agents."""
-        config = get_config()
-
-        # Use traditional agents directly
-        if self.fast_mode:
-            coding_agent = CodingAgent(self.llm_provider)
-        else:
-            coding_agent = CodingAgent(self.llm_provider)
-
+    def _setup_agents_and_orchestrator(self):
+        """Initialize agents and ClayOrchestrator."""
+        # Create coding agent
+        coding_agent = CodingAgent(self.llm_provider)
         coding_agent.register_tools([
             ReadTool(),
             WriteTool(),
@@ -99,26 +68,25 @@ class ClaySession:
             SearchTool()
         ])
 
-        research_agent = ResearchAgent(self.llm_provider)
-        research_agent.register_tools([
-            GrepTool(),
-            SearchTool(),
-            WebFetchTool(),
-            WebSearchTool()
-        ])
-
-        self.agent_orchestrator.register_agent(coding_agent)
-        self.agent_orchestrator.register_agent(research_agent)
-
         # Store the primary coding agent for orchestrator use
         self.primary_agent = coding_agent
 
-    def setup_clay_orchestrator(self):
-        """Initialize the Clay orchestrator with all components."""
+        # Initialize ClayOrchestrator
         self.clay_orchestrator = ClayOrchestrator(
             agent=self.primary_agent,
             working_dir=self.working_dir
         )
+
+        # New Claude Code compatible options
+        self.allowed_tools = None
+        self.disallowed_tools = None
+        self.max_turns = None
+        self.verbose = False
+        self.append_system_prompt = None
+
+
+
+
 
     @trace_operation
     async def process_message(self, message: str) -> str:
@@ -127,12 +95,10 @@ class ClaySession:
 
         self.conversation_history.append({"role": "user", "content": message})
 
-        # Always use orchestrator if available - it will determine complexity internally
-        if self.use_orchestrator and self.clay_orchestrator:
-            return await self._process_with_orchestrator(message)
-        else:
-            # Fallback to agents if orchestrator not available
-            return await self._process_with_agents(message)
+        # Always use ClayOrchestrator
+        if not self.clay_orchestrator:
+            raise RuntimeError("ClayOrchestrator not initialized. Please check your LLM provider configuration.")
+        return await self._process_with_orchestrator(message)
 
 
     @trace_operation
@@ -195,72 +161,6 @@ class ClaySession:
         self.conversation_history.append({"role": "assistant", "content": response})
         return response
 
-    @trace_operation
-    async def _process_with_agents(self, message: str) -> str:
-        """Process message using the legacy agent system."""
-
-        context = AgentContext(
-            working_directory=str(self.working_dir),
-            conversation_history=self.conversation_history.copy(),
-            available_tools=[],
-            metadata={}
-        )
-
-        # Add system prompt if specified
-        if self.append_system_prompt:
-            context.metadata["append_system_prompt"] = self.append_system_prompt
-
-        agent_name = self.determine_agent(message)
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
-            task = progress.add_task(f"Thinking with {agent_name}...", total=None)
-
-            task_id = f"task_{len(self.agent_orchestrator.tasks)}"
-            agent_task = self.agent_orchestrator.create_task(
-                task_id=task_id,
-                prompt=message,
-                agent_name=agent_name
-            )
-
-
-            await self.agent_orchestrator.submit_task(agent_task)
-            result = await self.agent_orchestrator.run_task(agent_task, context)
-
-
-            progress.update(task, completed=True)
-
-        if result.error:
-            response = f"Error: {result.error}"
-        else:
-            # Try to provide meaningful response based on result content
-            if result.output:
-                response = result.output
-                # For research tasks, check if we need to enhance the response
-                # Handle different response types (dict, list, str)
-                response_str = str(response) if not isinstance(response, str) else response
-                message_lower = message.lower()
-
-                # Only enhance responses if:
-                # 1. Response is short and lacks research indicators AND
-                # 2. The message appears to be a research task (not coding/file explanation)
-                is_likely_research = any(research_keyword in message_lower for research_keyword in ["research", "investigate", "current state", "latest developments", "what are", "benefits of"])
-                is_likely_coding = any(code_keyword in message_lower for code_keyword in ["file", ".py", ".js", ".java", "function", "algorithm", "explain the", "how does"])
-
-                if (len(response_str) < 100 and
-                    not any(keyword in response_str.lower() for keyword in ["research", "information", "current", "development", "state", "field", "technology", "studies"]) and
-                    is_likely_research and not is_likely_coding):
-                    enhanced_response = self._generate_response_from_result(result, message)
-                    if enhanced_response != "Task completed":
-                        response = enhanced_response
-            else:
-                response = self._generate_response_from_result(result, message)
-
-        self.conversation_history.append({"role": "assistant", "content": response})
-        return response
 
     def _format_orchestrator_success(self, result: dict) -> str:
         """Format successful orchestrator result into readable response."""
@@ -304,15 +204,6 @@ class ClaySession:
         # Default fallback
         return "Task completed"
 
-    def determine_agent(self, message: str) -> str:
-        """Determine which agent to use based on message."""
-        message_lower = message.lower()
-
-        research_keywords = ["search", "find", "research", "look for", "grep", "analyze"]
-        if any(keyword in message_lower for keyword in research_keywords):
-            return "research_agent"
-
-        return "coding_agent"
 
 
 @click.group(invoke_without_command=True)
@@ -330,14 +221,13 @@ class ClaySession:
 @click.option("--verbose", is_flag=True, help="Enable detailed logging")
 @click.option("--max-turns", type=int, help="Limit agentic turns")
 @click.option("--append-system-prompt", help="Append to system prompt")
-@click.option("--use-orchestrator/--no-orchestrator", default=True, help="Use Clay orchestrator for complex tasks")
 @click.option("--analyze-only", is_flag=True, help="Analyze project without making changes")
 @click.argument("query", required=False)
 def cli(ctx: click.Context, print: bool, provider: Optional[str], model: Optional[str],
         api_key: Optional[str], fast: bool, add_dir: tuple, allowed_tools: tuple,
         disallowed_tools: tuple, output_format: str, input_format: str, verbose: bool,
         max_turns: Optional[int],
-        append_system_prompt: Optional[str], use_orchestrator: bool, analyze_only: bool, query: Optional[str]):
+        append_system_prompt: Optional[str], analyze_only: bool, query: Optional[str]):
     """Clay - Agentic Coding System similar to Claude Code."""
 
     # If a subcommand was invoked, don't run the main CLI
@@ -413,12 +303,11 @@ def cli(ctx: click.Context, print: bool, provider: Optional[str], model: Optiona
             console.print(f"[red]Error: Directory '{dir_path}' does not exist[/red]")
             sys.exit(1)
 
-    # Create session with configuration - always use orchestrator if provider available
+    # Create session with configuration
     session = ClaySession(
         llm_provider,
         working_dir=working_dirs[0],  # Primary working directory
-        fast_mode=fast,
-        use_orchestrator=use_orchestrator and llm_provider is not None
+        fast_mode=fast
     )
 
     # Configure session with additional options
