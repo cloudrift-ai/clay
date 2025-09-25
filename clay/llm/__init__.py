@@ -1,17 +1,98 @@
-"""LLM integration for Clay."""
+"""Simple completion function for Clay LLM integration."""
 
-from .base import LLMProvider, LLMResponse
-from .openai_provider import OpenAIProvider
-from .anthropic_provider import AnthropicProvider
-from .cloudrift_provider import CloudriftProvider
-from .factory import create_llm_provider, get_default_provider
+import os
+import json
+import aiohttp
+import asyncio
+from typing import AsyncIterator, Iterator, Dict, Any, List, Optional
 
-__all__ = [
-    "LLMProvider",
-    "LLMResponse",
-    "OpenAIProvider",
-    "AnthropicProvider",
-    "CloudriftProvider",
-    "create_llm_provider",
-    "get_default_provider",
-]
+
+async def completion(
+    model: str,
+    messages: List[Dict[str, str]],
+    stream: bool = False,
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    **kwargs
+) -> AsyncIterator[Dict[str, Any]] | Dict[str, Any]:
+    """Simple completion function mimicking LiteLLM interface."""
+
+    api_key = os.environ.get("CLOUDRIFT_API_KEY")
+    if not api_key:
+        raise ValueError("CLOUDRIFT_API_KEY environment variable is required")
+
+    url = "https://inference.cloudrift.ai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": stream
+    }
+
+    if temperature is not None:
+        payload["temperature"] = temperature
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
+
+    # Add any additional kwargs
+    payload.update(kwargs)
+
+    timeout = aiohttp.ClientTimeout(total=30)  # 30 second timeout
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.post(url, headers=headers, json=payload) as response:
+            response.raise_for_status()
+
+            if stream:
+                return _stream_response(response)
+            else:
+                return await response.json()
+
+
+def _stream_response(response) -> Iterator[Dict[str, Any]]:
+    """Parse streaming response from Cloudrift API."""
+    for line in response.iter_lines():
+        if line:
+            line = line.decode('utf-8')
+            if line.startswith('data: '):
+                data = line[6:]  # Remove 'data: ' prefix
+                if data == '[DONE]':
+                    break
+                try:
+                    chunk = json.loads(data)
+                    yield chunk
+                except json.JSONDecodeError:
+                    continue
+
+
+class Delta:
+    """Simple delta class to mimic LiteLLM structure."""
+    def __init__(self, content: str = None):
+        self.content = content
+
+
+class Choice:
+    """Simple choice class to mimic LiteLLM structure."""
+    def __init__(self, delta: Delta):
+        self.delta = delta
+
+
+class StreamChunk:
+    """Simple chunk class to mimic LiteLLM structure."""
+    def __init__(self, choices: List[Choice]):
+        self.choices = choices
+
+
+def format_stream_chunk(chunk: Dict[str, Any]) -> StreamChunk:
+    """Convert raw API chunk to LiteLLM-like structure."""
+    choices = []
+    if 'choices' in chunk:
+        for choice in chunk['choices']:
+            delta_content = None
+            if 'delta' in choice and 'content' in choice['delta']:
+                delta_content = choice['delta']['content']
+            choices.append(Choice(Delta(delta_content)))
+    return StreamChunk(choices)

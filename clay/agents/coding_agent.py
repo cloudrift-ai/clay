@@ -4,31 +4,28 @@ from typing import Optional
 import json
 
 from .base import Agent, AgentResult, AgentContext, AgentStatus
-from ..llm.base import LLMProvider
+from ..llm import completion
 
 
 class CodingAgent(Agent):
     """Agent specialized for coding tasks."""
 
-    def __init__(self, llm_provider: LLMProvider):
+    def __init__(self, model: str = "deepseek-ai/DeepSeek-V3"):
         super().__init__(
             name="coding_agent",
             description="Agent specialized for writing, editing, and debugging code"
         )
-        if not llm_provider:
-            raise ValueError("LLM provider is required")
-        self.llm_provider = llm_provider
+        self.model = model
 
     async def think(self, prompt: str, context: AgentContext) -> AgentResult:
         """Process the prompt and decide on coding actions."""
         system_prompt = self._build_system_prompt(context)
-        response = await self.llm_provider.complete(
-            system_prompt=system_prompt,
-            user_prompt=prompt,
-            temperature=0.2
-        )
-
-        return self._parse_response(response.content)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+        response = await completion(model=self.model, messages=messages, temperature=0.2)
+        return self._parse_response(response['choices'][0]['message']['content'])
 
 
     def _build_system_prompt(self, context: AgentContext) -> str:

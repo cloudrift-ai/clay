@@ -58,20 +58,16 @@ async def test_simple_definitions():
 
 @pytest.mark.asyncio
 async def test_file_operations():
-    """Test basic file operation queries."""
-    # Create a test file in current directory
-    test_file = Path("test.txt")
-    test_file.write_text("Hello, World!\nThis is a test file.\n")
-
+    """Test basic file operation queries provide helpful guidance."""
     file_queries = [
-        "list files in the current directory",
-        "show the contents of test.txt",
-        "what files are in this directory?",
+        ("list files in the current directory", ["ls", "dir", "files"]),
+        ("how to read a file", ["read", "file", "open"]),
+        ("what command shows directory contents?", ["ls", "dir", "list"]),
     ]
 
-    for query in file_queries:
+    for query, expected_keywords in file_queries:
         response = await run_clay_command(query)
-        assert_response_quality(response, min_length=5)
+        assert_response_quality(response, expected_keywords, min_length=10)
 
 
 @pytest.mark.asyncio

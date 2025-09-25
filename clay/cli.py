@@ -1,6 +1,7 @@
 """CLI interface for Clay."""
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -21,7 +22,6 @@ from .tools import (
     ReadTool, WriteTool, EditTool, GlobTool,
     BashTool, GrepTool, SearchTool
 )
-from .llm import get_default_provider
 from .orchestrator import ClayOrchestrator
 from .trace import (
     trace_operation,
@@ -35,9 +35,7 @@ console = Console()
 class ClaySession:
     """Main session handler for Clay CLI."""
 
-    def __init__(self, llm_provider=None, working_dir: str = ".", fast_mode: bool = False, session_id: Optional[str] = None):
-
-        self.llm_provider = llm_provider or get_default_provider()
+    def __init__(self, working_dir: str = ".", fast_mode: bool = False, session_id: Optional[str] = None):
         self.working_dir = Path(working_dir).resolve()
         self.fast_mode = fast_mode
 
@@ -57,7 +55,7 @@ class ClaySession:
     def _setup_agents_and_orchestrator(self):
         """Initialize agents and ClayOrchestrator."""
         # Create coding agent
-        coding_agent = CodingAgent(self.llm_provider)
+        coding_agent = CodingAgent()
         coding_agent.register_tools([
             ReadTool(),
             WriteTool(),
@@ -222,32 +220,18 @@ def cli(ctx: click.Context, print: bool, query: Optional[str]):
     if not sys.stdin.isatty():
         piped_input = sys.stdin.read().strip()
 
-    # Get LLM provider from config
+    # Set API key from config if available
     config = get_config()
-    llm_provider = None
-
-    # Try to get default provider from config
     default_provider = config.get_default_provider()
-    if default_provider:
+    if default_provider == "cloudrift":
         try:
             api_key, model = config.get_provider_credentials(default_provider)
-            if api_key:
-                from .llm import create_llm_provider
-                llm_provider = create_llm_provider(default_provider, api_key, model)
+            if api_key and not os.environ.get("CLOUDRIFT_API_KEY"):
+                os.environ["CLOUDRIFT_API_KEY"] = api_key
         except Exception:
             pass
 
-    # Fallback to environment-based provider
-    if not llm_provider:
-        llm_provider = get_default_provider()
-
-    if not llm_provider:
-        console.print("[red]Error: No LLM provider available.[/red]")
-        console.print("[yellow]Please set an API key: export CLOUDRIFT_API_KEY=your-key[/yellow]")
-        sys.exit(1)
-
-    # Create minimal session
-    session = ClaySession(llm_provider)
+    session = ClaySession()
 
     # Handle execution modes
     if print or query or piped_input:

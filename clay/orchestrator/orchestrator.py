@@ -13,11 +13,7 @@ class ClayOrchestrator:
         """Initialize the orchestrator with LLM agent."""
         self.working_dir = working_dir
         self.agent = agent
-
-        # Create LLM agent for task processing
-        if not hasattr(agent, 'llm_provider') or not agent.llm_provider:
-            raise ValueError("Agent must have a valid LLM provider")
-        self.llm_agent = LLMAgent(agent.llm_provider)
+        self.llm_agent = LLMAgent()
 
     async def process_task(self, goal: str) -> Dict[str, Any]:
         """Process a task by directly invoking the LLM agent."""
