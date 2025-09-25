@@ -1,210 +1,107 @@
-# Clay Integration Tests
+# Clay Tests
 
-This directory contains comprehensive integration tests for Clay that verify end-to-end functionality across different types of queries and use cases.
+Comprehensive test suite for the Clay agentic coding system.
 
 ## Test Structure
 
-The integration tests are organized into focused modules using pure pytest functions:
-
-### Test Files
-
-1. **Simple Queries** (`test_simple_queries.py`)
-   - Basic math operations (2+2, multiplication, division)
-   - Simple factual questions
-   - Basic file operations
-
-2. **Coding Tasks** (`test_coding_tasks.py`)
-   - Function creation (factorial, string reversal, sorting)
-   - Code explanation and analysis
-   - Algorithm implementation
-   - Code debugging and optimization
-
-3. **Complex Project Creation** (`test_complex_projects.py`)
-   - Multi-file project generation
-   - Web server projects (Flask)
-   - Calculator applications
-   - Data analysis projects
-   - REST API creation
-   - Utility libraries
-
-4. **Task Routing** (`test_task_routing.py`)
-   - Multi-model system verification
-   - Task type classification testing
-   - Model selection for different task types
-   - Orchestrator vs agent routing
-
-5. **Error Handling** (`test_error_handling.py`)
-   - Invalid file operations
-   - Ambiguous queries
-   - Edge cases (empty queries, special characters)
-   - Multilingual query handling
-   - Resource-intensive requests
-
-### Test Helper
-
-Tests use automatic fixtures for session management and cleanup:
-- Automatic test directory creation in `_test/<test_name>/`
-- Session creation utilities
-- Response quality assertions
-- Automatic cleanup after tests
+- **`integration/`** - End-to-end tests using ClayOrchestrator directly
+- **`tools/`** - Unit tests for individual tools (BashTool, etc.)
+- **Test isolation** - Each test runs in isolated `_test/<test_name>/` directory
+- **Automatic cleanup** - Test fixtures handle setup and teardown
 
 ## Running Tests
 
 ### Prerequisites
 
-1. **API Keys**: At least one API key must be configured:
-   ```bash
-   clay config --set-api-key cloudrift YOUR_KEY
-   # or
-   clay config --set-api-key anthropic YOUR_KEY
-   # or
-   clay config --set-api-key openai YOUR_KEY
-   ```
-
-2. **Dependencies**: Install pytest:
-   ```bash
-   pip install pytest pytest-asyncio
-   ```
-
-### Test Execution
-
-#### Run All Tests
+Ensure you have dependencies installed:
 ```bash
-# Run all integration tests
-pytest tests/integration/ -v
-
-# Run tests with coverage
-pytest tests/integration/ --cov=clay -v
+source venv/bin/activate
+pip install -e .
 ```
 
-#### Run Specific Test Modules
+### Quick Start
+
 ```bash
-# Simple queries only
-pytest tests/integration/test_simple_queries.py -v
+# Run all tests in parallel (recommended)
+source venv/bin/activate && python -m pytest -n auto
 
-# Coding tasks only
-pytest tests/integration/test_coding_tasks.py -v
+# Run all tests with maximum parallelism
+source venv/bin/activate && python -m pytest -n 16
 
-# Complex project creation
-pytest tests/integration/test_complex_projects.py -v
+# Run specific test module
+source venv/bin/activate && python -m pytest tests/tools/test_bash_tool.py -n 16 -v
 
-# Task routing verification
-pytest tests/integration/test_task_routing.py -v
-
-# Error handling tests
-pytest tests/integration/test_error_handling.py -v
+# Run integration tests only
+source venv/bin/activate && python -m pytest tests/integration/ -n 16 -v
 ```
 
-#### Run Specific Test Functions
+### Parallel Execution (Recommended)
+
+Clay tests are designed for parallel execution to maximize performance:
+
 ```bash
-# Run specific test function
-pytest tests/integration/test_simple_queries.py::test_basic_math -v
+# Use all available CPU cores
+python -m pytest -n auto
+
+# Use specific number of processes
+python -m pytest -n 16
+
+# Parallel with verbose output
+python -m pytest -n 16 -v
+
+# Parallel integration tests only
+python -m pytest tests/integration/ -n 16
+```
+
+**Performance**: Parallel execution typically runs 4-8x faster than sequential.
+
+### Test Coverage
+
+```bash
+# Run with coverage report
+python -m pytest --cov=clay --cov-report=html
+
+# Coverage with parallel execution
+python -m pytest -n 16 --cov=clay
+```
+
+### Development Testing
+
+```bash
+# Run specific test
+python -m pytest tests/tools/test_bash_tool.py::TestBashTool::test_execute_simple_command -v
 
 # Run tests matching pattern
-pytest tests/integration/ -k "math" -v
+python -m pytest -k "bash" -v
+
+# Stop on first failure
+python -m pytest -x
 ```
 
-### Test Configuration
+## Test Configuration
 
-Tests use pytest markers for organization:
-- `@pytest.mark.asyncio`: Asynchronous test functions
+Tests automatically:
+- Create isolated directories in `_test/<test_name>/`
+- Handle cleanup after completion
+- Use current working directory as base
+- Support async operations with `pytest-asyncio`
 
-## Expected Behavior
+## Key Test Features
 
-### Simple Queries
-- **Input**: "what is 2+2?"
-- **Expected**: Direct answer "4"
-- **Model**: Fast reasoning model (DeepSeek-V3)
-- **Agent**: Direct agent execution
+- **Tool tests**: Validate individual tool functionality (serialization, execution, error handling)
+- **Integration tests**: End-to-end ClayOrchestrator workflows
+- **Parallel safe**: All tests can run concurrently without conflicts
+- **Fast execution**: Optimized for CI/CD pipelines
 
-### Coding Tasks
-- **Input**: "write a function to calculate factorial"
-- **Expected**: Code generation with file creation
-- **Model**: Coding-optimized model
-- **Agent**: Coding agent with tool execution
-
-### Complex Projects
-- **Input**: "Create a Flask web server with templates"
-- **Expected**: Multiple files created (app.py, requirements.txt, templates)
-- **Model**: Complex reasoning or orchestrator
-- **Behavior**: Multi-step execution plan
-
-## Test Output Examples
-
-### Successful Simple Query
-```
-🤖 coding_agent Agent: what is 2+2?
-→ Using simple reasoning model: cloudrift:DeepSeek-V3
-4
-```
-
-### Successful Coding Task
-```
-🤖 coding_agent Agent: write a function to calculate factorial
-→ Using coding model: cloudrift:DeepSeek-V3
-➤ Executing write: factorial.py
-  → Created new file with 15 lines
-```
-
-### Complex Project
-```
-🤖 coding_agent Agent: Create a Flask web server
-→ Using complex reasoning model: cloudrift:DeepSeek-V3
-➤ Executing write: app.py
-  → Created new file with 25 lines
-➤ Executing write: requirements.txt
-  → Created new file with 3 lines
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **No API Keys**
-   ```
-   ❌ No API keys found. Integration tests require at least one API key.
-   ```
-   **Solution**: Configure API keys using `clay config --set-api-key`
-
-2. **Import Errors**
-   ```
-   ModuleNotFoundError: No module named 'clay'
-   ```
-   **Solution**: Run tests from project root directory
-
-3. **Timeout Issues**
-   ```
-   AssertionError: Response too short
-   ```
-   **Solution**: Some models may be slow; increase timeout or skip slow tests
-
-### Test Development
-
-When adding new tests:
-
-1. Use `run_clay_command(query)` helper function from `test_helpers.py`
-2. Tests automatically get isolated directories in `_test/<test_name>/`
-3. Use realistic expectations (models may not always create files)
-4. No manual setup or cleanup needed - handled automatically by fixtures
-5. Tests use Clay's default configuration and CLI interface
-
-### Performance Considerations
-
-- Simple tests should complete in <10 seconds
-- Coding tests may take 10-30 seconds
-- Complex project tests may take 30+ seconds
-
-## Integration with CI/CD
-
-For automated testing environments:
+## Example Output
 
 ```bash
-# Run test suite
-pytest tests/integration/ -v --tb=short
-
-# Generate test report
-pytest tests/integration/ --html=test_report.html
-
-# Run tests in parallel
-pytest tests/integration/ -n 4 -v
+$ python -m pytest -n 16 -v
+============================= test session starts ==============================
+created: 16/16 workers
+16 workers [24 items]
+...
+============================== 24 passed in 2.47s ==============================
 ```
+
+For more specific test guidance, see individual test files and the project's `CLAUDE.md`.

@@ -177,9 +177,9 @@ async def test_coding_tasks_with_tool_execution():
     orchestrator = ClayOrchestrator()
 
     coding_tasks = [
-        ("Create a Python file that prints hello world", "write", "hello"),
-        ("Write a function to calculate fibonacci numbers", "write", "fibonacci"),
-        ("Create a script that reads a text file", "write", "read"),
+        ("Create a Python file that prints hello world", "bash", "hello"),
+        ("Create a Python script with fibonacci function", "bash", "fibonacci"),
+        ("Write a script file that reads text files", "bash", "read"),
     ]
 
     for query, expected_tool, expected_content in coding_tasks:
@@ -196,8 +196,7 @@ async def test_coding_tasks_with_tool_execution():
         assert first_step.status == PlanStatus.COMPLETED, f"Tool execution should be completed"
 
         # Verify tool parameters contain expected content
-        if expected_tool == "write":
-            assert "file_path" in first_step.parameters, "Write tool should have file_path parameter"
-            assert "content" in first_step.parameters, "Write tool should have content parameter"
-            content_lower = first_step.parameters["content"].lower()
-            assert expected_content in content_lower, f"Expected '{expected_content}' in file content"
+        if expected_tool == "bash":
+            assert "command" in first_step.parameters, "Bash tool should have command parameter"
+            command_lower = first_step.parameters["command"].lower()
+            assert expected_content in command_lower, f"Expected '{expected_content}' in bash command"

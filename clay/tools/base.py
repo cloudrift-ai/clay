@@ -15,6 +15,7 @@ class ToolStatus(Enum):
 
 @dataclass
 class ToolResult:
+    """Base class for tool results."""
     status: ToolStatus
     output: Optional[str] = None
     error: Optional[str] = None
@@ -27,6 +28,28 @@ class ToolResult:
             "error": self.error,
             "metadata": self.metadata
         }
+
+    def serialize(self) -> str:
+        """Serialize the full tool result."""
+        return json.dumps(self.to_dict(), indent=2)
+
+    def serialize_human_readable(self, max_lines: int = 10) -> str:
+        """Serialize a human-readable version with limited output."""
+        result = {
+            "status": self.status.value,
+            "error": self.error,
+            "metadata": self.metadata
+        }
+
+        if self.output:
+            lines = self.output.splitlines()
+            if len(lines) <= max_lines:
+                result["output"] = self.output
+            else:
+                truncated_output = '\n'.join(lines[:max_lines])
+                result["output"] = truncated_output + f"\n... (truncated, showing {max_lines} of {len(lines)} lines)"
+
+        return json.dumps(result, indent=2)
 
 
 class ToolError(Exception):

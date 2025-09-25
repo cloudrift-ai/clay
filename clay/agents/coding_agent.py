@@ -5,28 +5,20 @@ from typing import Optional
 from .base import Agent
 from ..llm import completion
 from ..runtime import Plan
-from ..tools import (
-    ReadTool, WriteTool, EditTool, GlobTool,
-    BashTool, GrepTool, SearchTool
-)
+from ..tools import BashTool
 
 
 class CodingAgent(Agent):
     """Agent specialized for coding tasks."""
 
     name = "coding_agent"
-    description = "Specialized agent for software development tasks including writing, editing, debugging, and analyzing code. Can work with multiple programming languages and has access to file system tools for reading, writing, and modifying code files."
+    description = "Specialized agent for software development tasks with access to bash commands for code operations and system tasks."
     capabilities = [
-        "Write new code files and functions",
-        "Edit existing code files",
-        "Debug and fix code issues",
-        "Read and analyze code files",
-        "Search through codebases",
         "Run shell commands and scripts",
-        "Create and modify file structures",
-        "Generate code documentation",
-        "Perform code refactoring",
-        "Execute file operations (glob, grep, etc.)"
+        "Execute system operations",
+        "Interact with development tools via bash",
+        "Perform file operations through command line",
+        "Run build, test, and deployment commands"
     ]
 
     def __init__(self):
@@ -37,13 +29,7 @@ class CodingAgent(Agent):
 
         # Register essential coding tools
         self.register_tools([
-            ReadTool(),
-            WriteTool(),
-            EditTool(),
-            GlobTool(),
-            BashTool(),
-            GrepTool(),
-            SearchTool()
+            BashTool()
         ])
 
     async def think(self, plan: Plan) -> Plan:
@@ -68,25 +54,26 @@ Available tools:
 
 IMPORTANT: You must create a plan with tools to perform tasks. Do not just describe what you would do.
 
-For tasks that require creating files, use the 'write' tool.
-For tasks that require reading files, use the 'read' tool.
-For tasks that require running commands, use the 'bash' tool.
+Use the 'bash' tool for all operations including:
+- Creating files: echo "content" > file.py
+- Reading files: cat file.py
+- Editing files: sed commands or text editors
+- Running commands: any shell command
 
 ALWAYS respond with valid JSON in this exact format:
 
 {{
-    "thought": "I need to create a Python file, so I'll plan to use the write tool",
+    "thought": "I need to create a Python file, so I'll use bash to write the file",
     "plan": [
         {{
-            "tool_name": "write",
+            "tool_name": "bash",
             "parameters": {{
-                "file_path": "main.py",
-                "content": "def hello_world():\\n    print('Hello, World!')\\n\\nif __name__ == '__main__':\\n    hello_world()"
+                "command": "cat > main.py << 'EOF'\\ndef hello_world():\\n    print('Hello, World!')\\n\\nif __name__ == '__main__':\\n    hello_world()\\nEOF"
             }},
             "description": "Create main.py with hello world function"
         }}
     ],
-    "output": "Plan created to create main.py with a hello world function"
+    "output": "Plan created to create main.py with a hello world function using bash"
 }}
 
 If no tools are needed for information-only responses:
