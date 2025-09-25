@@ -14,7 +14,24 @@ class BashTool(Tool):
     def __init__(self, timeout: int = 120):
         super().__init__(
             name="bash",
-            description="Execute bash commands"
+            description="Execute shell commands and scripts with configurable timeout and working directory support",
+            capabilities=[
+                "Run any shell command or script",
+                "Capture stdout and stderr output",
+                "Set custom working directories",
+                "Configure execution timeouts",
+                "Handle command failures gracefully",
+                "Support complex shell operations (pipes, redirects, etc.)"
+            ],
+            use_cases=[
+                "Run build and compilation commands",
+                "Execute test suites and scripts",
+                "Install packages and dependencies",
+                "Run git commands and version control",
+                "Execute system administration tasks",
+                "Launch applications and services",
+                "Perform file operations and system queries"
+            ]
         )
         self.default_timeout = timeout
 

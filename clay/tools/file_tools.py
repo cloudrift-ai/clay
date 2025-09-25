@@ -14,7 +14,22 @@ class ReadTool(Tool):
     def __init__(self):
         super().__init__(
             name="read",
-            description="Read a file from the filesystem"
+            description="Read the contents of a file from the filesystem with optional offset and line limit",
+            capabilities=[
+                "Read text files",
+                "Display file contents with line numbers",
+                "Handle large files with offset/limit",
+                "Support UTF-8 encoding",
+                "Validate file existence"
+            ],
+            use_cases=[
+                "Examine source code files",
+                "Read configuration files",
+                "Inspect log files",
+                "View documentation",
+                "Debug file contents",
+                "Read data files"
+            ]
         )
 
     def get_schema(self) -> Dict[str, Any]:
@@ -66,7 +81,22 @@ class WriteTool(Tool):
     def __init__(self):
         super().__init__(
             name="write",
-            description="Write a file to the filesystem"
+            description="Create or overwrite a file with specified content, creating directories as needed",
+            capabilities=[
+                "Create new files",
+                "Overwrite existing files",
+                "Create parent directories automatically",
+                "Support UTF-8 encoding",
+                "Handle any text content"
+            ],
+            use_cases=[
+                "Generate source code files",
+                "Create configuration files",
+                "Write documentation",
+                "Save processed data",
+                "Create scripts and executables",
+                "Generate reports and logs"
+            ]
         )
 
     def get_schema(self) -> Dict[str, Any]:
@@ -111,7 +141,22 @@ class EditTool(Tool):
     def __init__(self):
         super().__init__(
             name="edit",
-            description="Edit a file with find-replace"
+            description="Edit files by finding and replacing text strings with exact matching and optional replace-all functionality",
+            capabilities=[
+                "Find and replace exact text strings",
+                "Replace single or multiple occurrences",
+                "Preserve file encoding and formatting",
+                "Validate file existence before editing",
+                "Maintain original file structure"
+            ],
+            use_cases=[
+                "Fix bugs in source code",
+                "Update configuration values",
+                "Refactor code by renaming variables",
+                "Update documentation text",
+                "Modify script parameters",
+                "Batch text replacements"
+            ]
         )
 
     def get_schema(self) -> Dict[str, Any]:
@@ -187,7 +232,22 @@ class GlobTool(Tool):
     def __init__(self):
         super().__init__(
             name="glob",
-            description="Find files matching glob patterns"
+            description="Find files and directories using glob patterns with recursive search and modification time sorting",
+            capabilities=[
+                "Match files with glob patterns (*, **, ?, [])",
+                "Recursive directory traversal",
+                "Sort results by modification time",
+                "Search from any base directory",
+                "Handle complex pattern matching"
+            ],
+            use_cases=[
+                "Find all files of specific type (*.py, *.js)",
+                "Locate configuration files",
+                "Search for files by name pattern",
+                "List recently modified files",
+                "Discover project structure",
+                "Find matching directories"
+            ]
         )
 
     def get_schema(self) -> Dict[str, Any]:

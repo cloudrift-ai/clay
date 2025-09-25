@@ -37,9 +37,11 @@ class ToolError(Exception):
 class Tool(ABC):
     """Base class for all tools."""
 
-    def __init__(self, name: str, description: str):
+    def __init__(self, name: str, description: str, capabilities: Optional[List[str]] = None, use_cases: Optional[List[str]] = None):
         self.name = name
         self.description = description
+        self.capabilities = capabilities or []
+        self.use_cases = use_cases or []
         self.parameters: Dict[str, Any] = {}
 
     @abstractmethod

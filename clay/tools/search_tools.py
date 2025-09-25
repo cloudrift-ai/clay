@@ -14,7 +14,23 @@ class GrepTool(Tool):
     def __init__(self):
         super().__init__(
             name="grep",
-            description="Search file contents using patterns"
+            description="Search through file contents using ripgrep with regex patterns, file type filters, and context display",
+            capabilities=[
+                "Search with regex patterns",
+                "Filter by file types (py, js, etc.)",
+                "Case-sensitive or insensitive search",
+                "Show context lines around matches",
+                "Fast recursive directory search",
+                "Multiple output formats"
+            ],
+            use_cases=[
+                "Find function definitions in code",
+                "Search for specific error patterns",
+                "Locate configuration settings",
+                "Find usage of variables or classes",
+                "Search documentation content",
+                "Identify code patterns across files"
+            ]
         )
 
     def get_schema(self) -> Dict[str, Any]:
@@ -124,7 +140,23 @@ class SearchTool(Tool):
     def __init__(self):
         super().__init__(
             name="search",
-            description="Semantic code search"
+            description="High-level semantic code search that combines multiple search patterns and strategies for comprehensive results",
+            capabilities=[
+                "Extract multiple search patterns from queries",
+                "Combine results from different search strategies",
+                "Remove duplicate results",
+                "Limit results to manageable size",
+                "Semantic understanding of code queries",
+                "Intelligent pattern extraction"
+            ],
+            use_cases=[
+                "Find functions or classes by description",
+                "Locate code implementing specific features",
+                "Search for error handling patterns",
+                "Find similar code structures",
+                "Discover API usage examples",
+                "Locate configuration or setup code"
+            ]
         )
         self.grep_tool = GrepTool()
 
