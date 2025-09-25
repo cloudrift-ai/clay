@@ -21,7 +21,7 @@ from .tools import (
     ReadTool, WriteTool, EditTool, GlobTool,
     BashTool, GrepTool, SearchTool
 )
-from .llm import create_llm_provider, get_default_provider
+from .llm import get_default_provider
 from .orchestrator import ClayOrchestrator
 from .trace import (
     trace_operation,
@@ -209,26 +209,9 @@ class ClaySession:
 @click.group(invoke_without_command=True)
 @click.pass_context
 @click.option("--print", "-p", is_flag=True, help="Print response without interactive mode")
-@click.option("--provider", help="LLM provider (openai/anthropic/cloudrift)")
-@click.option("--model", help="Model to use")
-@click.option("--api-key", help="API key for provider")
-@click.option("--fast", is_flag=True, help="Use fast mode for better performance")
-@click.option("--add-dir", multiple=True, help="Add working directories")
-@click.option("--allowed-tools", multiple=True, help="Specify allowed tools")
-@click.option("--disallowed-tools", multiple=True, help="Specify disallowed tools")
-@click.option("--output-format", type=click.Choice(["text", "json", "stream-json"]), default="text", help="Output format")
-@click.option("--input-format", type=click.Choice(["text", "json"]), default="text", help="Input format")
-@click.option("--verbose", is_flag=True, help="Enable detailed logging")
-@click.option("--max-turns", type=int, help="Limit agentic turns")
-@click.option("--append-system-prompt", help="Append to system prompt")
-@click.option("--analyze-only", is_flag=True, help="Analyze project without making changes")
 @click.argument("query", required=False)
-def cli(ctx: click.Context, print: bool, provider: Optional[str], model: Optional[str],
-        api_key: Optional[str], fast: bool, add_dir: tuple, allowed_tools: tuple,
-        disallowed_tools: tuple, output_format: str, input_format: str, verbose: bool,
-        max_turns: Optional[int],
-        append_system_prompt: Optional[str], analyze_only: bool, query: Optional[str]):
-    """Clay - Agentic Coding System similar to Claude Code."""
+def cli(ctx: click.Context, print: bool, query: Optional[str]):
+    """Clay - Bare-minimum agentic coding system."""
 
     # If a subcommand was invoked, don't run the main CLI
     if ctx.invoked_subcommand is not None:
@@ -239,91 +222,37 @@ def cli(ctx: click.Context, print: bool, provider: Optional[str], model: Optiona
     if not sys.stdin.isatty():
         piped_input = sys.stdin.read().strip()
 
-    # Setup LLM provider using configuration system
+    # Get LLM provider from config
     config = get_config()
     llm_provider = None
-    prompted_api_key = None
-    prompted_provider = None
 
-    # Check if this is first run (no API keys configured)
-    if not config.has_any_api_key() and not api_key and not provider:
-        # Only prompt in interactive mode (not when piped or in print mode)
-        if sys.stdin.isatty() and not print and not piped_input:
-            result = config.prompt_for_api_key()
-            if result:
-                prompted_provider, prompted_api_key = result
-                provider = prompted_provider  # Use prompted provider
-
-    if provider:
-        # Explicit provider specified (or from prompt)
-        provider_api_key, provider_model = config.get_provider_credentials(provider)
-        effective_api_key = api_key or prompted_api_key or provider_api_key
-        effective_model = model or provider_model
-
-        if not effective_api_key:
-            console.print(f"[red]Error: No API key found for {provider}.[/red]")
-            console.print(f"[yellow]Set it with: export {provider.upper()}_API_KEY=your-key-here[/yellow]")
-            console.print(f"[yellow]Or run: clay config --set-api-key {provider}[/yellow]")
-            sys.exit(1)
-
+    # Try to get default provider from config
+    default_provider = config.get_default_provider()
+    if default_provider:
         try:
-            llm_provider = create_llm_provider(provider, effective_api_key, effective_model)
-            if verbose:
-                console.print(f"[green]Using {provider} provider with model {effective_model or 'default'}[/green]")
-        except Exception as e:
-            console.print(f"[red]Error: Failed to initialize {provider}: {e}[/red]")
-            sys.exit(1)
-    else:
-        # Auto-detect provider from configuration
-        default_provider = config.get_default_provider()
-        if default_provider:
-            provider_api_key, provider_model = config.get_provider_credentials(default_provider)
-            effective_model = model or provider_model
+            api_key, model = config.get_provider_credentials(default_provider)
+            if api_key:
+                from .llm import create_llm_provider
+                llm_provider = create_llm_provider(default_provider, api_key, model)
+        except Exception:
+            pass
 
-            try:
-                llm_provider = create_llm_provider(default_provider, provider_api_key, effective_model)
-                if verbose:
-                    console.print(f"[green]Auto-detected {default_provider} provider[/green]")
-            except Exception as e:
-                if verbose:
-                    console.print(f"[yellow]Failed to use {default_provider}: {e}[/yellow]")
+    # Fallback to environment-based provider
+    if not llm_provider:
+        llm_provider = get_default_provider()
 
-        if not llm_provider:
-            console.print("[red]Error: No LLM provider available.[/red]")
-            console.print("[yellow]Please set up an API key:[/yellow]")
-            console.print("[yellow]  • Run 'clay' to start interactive setup[/yellow]")
-            console.print("[yellow]  • Or set environment variable: export CLOUDRIFT_API_KEY=your-key[/yellow]")
-            console.print("[yellow]  • Or run: clay config --set-api-key cloudrift[/yellow]")
-            sys.exit(1)
+    if not llm_provider:
+        console.print("[red]Error: No LLM provider available.[/red]")
+        console.print("[yellow]Please set an API key: export CLOUDRIFT_API_KEY=your-key[/yellow]")
+        sys.exit(1)
 
-    # Setup working directories
-    working_dirs = list(add_dir) if add_dir else ["."]
-    for dir_path in working_dirs:
-        if not Path(dir_path).exists():
-            console.print(f"[red]Error: Directory '{dir_path}' does not exist[/red]")
-            sys.exit(1)
+    # Create minimal session
+    session = ClaySession(llm_provider)
 
-    # Create session with configuration
-    session = ClaySession(
-        llm_provider,
-        working_dir=working_dirs[0],  # Primary working directory
-        fast_mode=fast
-    )
-
-    # Configure session with additional options
-    session.allowed_tools = set(allowed_tools) if allowed_tools else None
-    session.disallowed_tools = set(disallowed_tools) if disallowed_tools else None
-    session.max_turns = max_turns
-    session.verbose = verbose
-    session.append_system_prompt = append_system_prompt
-
-    # Handle different execution modes
-    if analyze_only:
-        # Analysis mode - analyze project structure
-        asyncio.run(run_analysis_mode(session, output_format))
-    elif print or query or piped_input:
+    # Handle execution modes
+    if print or query or piped_input:
         # Headless mode - print response and exit
-        asyncio.run(run_headless_mode(session, query, piped_input, output_format))
+        asyncio.run(run_headless_mode(session, query, piped_input))
     else:
         # Interactive mode
         if not query:
@@ -335,9 +264,8 @@ def cli(ctx: click.Context, print: bool, provider: Optional[str], model: Optiona
         asyncio.run(run_interactive_mode(session, query))
 
 
-async def run_analysis_mode(session: ClaySession, output_format: str):
+async def run_analysis_mode(session: ClaySession):
     """Run in analysis mode - analyze project structure without changes."""
-    import json
 
     console.print("[cyan]Basic project analysis...[/cyan]")
     result = {
@@ -346,32 +274,14 @@ async def run_analysis_mode(session: ClaySession, output_format: str):
         "message": "Project analysis with bare-minimum orchestrator"
     }
 
-    if output_format == "json":
-        console.print(json.dumps(result, indent=2))
-    else:
-        if result.get("status") == "success":
-            console.print("[green]✅ Project Analysis Complete[/green]\n")
-
-            stack_info = result.get("stack_info", {})
-            if stack_info:
-                console.print("[bold]📚 Technology Stack:[/bold]")
-                for category, items in stack_info.items():
-                    if items:
-                        console.print(f"  {category}: {', '.join(items)}")
-
-            stats = result.get("stats", {})
-            if stats:
-                console.print(f"\n[bold]📊 Project Statistics:[/bold]")
-                for key, value in stats.items():
-                    console.print(f"  {key}: {value}")
-        else:
-            console.print(f"[red]❌ Analysis failed: {result.get('error', 'Unknown error')}[/red]")
+    console.print("[green]✅ Project Analysis Complete[/green]")
+    console.print(f"Working directory: {result.get('working_dir')}")
+    console.print(f"Message: {result.get('message')}")
 
 
 @trace_operation
-async def run_headless_mode(session: ClaySession, query: Optional[str], piped_input: Optional[str], output_format: str):
+async def run_headless_mode(session: ClaySession, query: Optional[str], piped_input: Optional[str]):
     """Run in headless mode - process query and exit."""
-    import json
     import logging
     # Set logging to only show errors in headless mode
     logging.getLogger().setLevel(logging.ERROR)
@@ -391,17 +301,7 @@ async def run_headless_mode(session: ClaySession, query: Optional[str], piped_in
     response = await session.process_message(prompt)
 
 
-    if output_format == "json":
-        output = {"response": response, "status": "success"}
-        console.print(json.dumps(output, indent=2))
-    elif output_format == "stream-json":
-        # Simulate streaming JSON output
-        lines = response.split('\n')
-        for i, line in enumerate(lines):
-            output = {"line": i, "content": line, "final": i == len(lines) - 1}
-            console.print(json.dumps(output))
-    else:
-        console.print(response)
+    console.print(response)
 
     # Save trace file
     try:

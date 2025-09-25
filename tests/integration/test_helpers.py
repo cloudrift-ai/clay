@@ -1,5 +1,6 @@
 """Common helper functions for integration tests."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -11,7 +12,7 @@ async def run_clay_command(query: str, working_dir=None):
         working_dir = Path.cwd()
 
     # Use the current Python executable (should work with pytest's environment)
-    # Remove max-turns limit to allow full execution
+    # Pass through the current environment (including any real API keys)
     result = subprocess.run([
         sys.executable, "-m", "clay.cli", "-p", query
     ],

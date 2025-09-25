@@ -1,8 +1,10 @@
 """Integration tests for simple queries that should get direct answers."""
 
+import os
 import pytest
 from pathlib import Path
 from tests.integration.test_helpers import run_clay_command, assert_response_quality
+
 
 
 @pytest.mark.asyncio
