@@ -10,10 +10,25 @@ from ..llm import completion
 class CodingAgent(Agent):
     """Agent specialized for coding tasks."""
 
+    name = "coding_agent"
+    description = "Specialized agent for software development tasks including writing, editing, debugging, and analyzing code. Can work with multiple programming languages and has access to file system tools for reading, writing, and modifying code files."
+    capabilities = [
+        "Write new code files and functions",
+        "Edit existing code files",
+        "Debug and fix code issues",
+        "Read and analyze code files",
+        "Search through codebases",
+        "Run shell commands and scripts",
+        "Create and modify file structures",
+        "Generate code documentation",
+        "Perform code refactoring",
+        "Execute file operations (glob, grep, etc.)"
+    ]
+
     def __init__(self):
         super().__init__(
-            name="coding_agent",
-            description="Agent specialized for writing, editing, and debugging code"
+            name=self.name,
+            description=self.description
         )
 
     async def think(self, prompt: str, context: AgentContext) -> AgentResult:
