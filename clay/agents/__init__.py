@@ -2,7 +2,6 @@
 
 from .base import Agent, AgentResult, AgentContext
 from .coding_agent import CodingAgent
-from .research_agent import ResearchAgent
 from .llm_agent import LLMAgent
 
 __all__ = [
@@ -10,6 +9,5 @@ __all__ = [
     "AgentResult",
     "AgentContext",
     "CodingAgent",
-    "ResearchAgent",
     "LLMAgent",
 ]
