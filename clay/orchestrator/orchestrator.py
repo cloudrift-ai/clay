@@ -23,7 +23,7 @@ class ClayOrchestrator:
 
         try:
             # Generate response using LLM agent
-            response = await self.llm_agent.generate_response(
+            response = await self.llm_agent.think(
                 prompt=goal,
                 system_prompt="You are a helpful coding assistant.",
                 temperature=0.2
