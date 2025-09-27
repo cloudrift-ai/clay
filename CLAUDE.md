@@ -60,7 +60,7 @@ Clay is an agentic coding system with a modular architecture:
 
 ### Multi-Agent System
 - **Agent Orchestrator** (`clay/agents/orchestrator.py`): Manages multiple agents, handles task dependencies and priority scheduling
-- **Coding Agent**: Specializes in code generation, file operations, and development tasks
+- **Coding Agent**: Senior Software Engineer persona with 10+ years experience, emphasizes TDD, clean code, security, testing, and production-quality development practices
 - **Research Agent**: Focuses on information gathering, searching, and analysis
 - Agents communicate through a shared context and can be extended with custom implementations
 
