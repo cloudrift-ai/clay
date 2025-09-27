@@ -6,8 +6,10 @@ import aiohttp
 import asyncio
 from typing import AsyncIterator, Iterator, Dict, Any, List, Optional
 from ..config import get_config
+from ..trace import trace_operation
 
 
+@trace_operation
 async def completion(
     messages: List[Dict[str, str]],
     stream: bool = False,

@@ -34,7 +34,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Enable tracing**: Use `@trace_operation` decorator on functions (auto-detects component and operation)
 - **Method tracing**: Use `@trace_method()` decorator on class methods (auto-detects component name)
 - **Trace Clay execution**: All Clay CLI commands automatically generate traces in `traces/` directory
-- **Trace test runs**: All pytest executions automatically save traces to `_test/<test_name>/traces/`
+- **Trace test runs**: All pytest executions automatically save traces to `_test/<test_name>/_trace/`
 - **View trace files**: Check `traces/` directory for JSON files with complete execution trees
 - **Analyze program behavior**: Trace files show nested call hierarchies, timing, arguments, and errors
 - **Test tracing system**: `source venv/bin/activate && python -m pytest tests/test_trace.py` (31 comprehensive tests)
@@ -48,7 +48,7 @@ source venv/bin/activate && python -m clay.cli run "your command"
 
 # Run tests with automatic tracing
 source venv/bin/activate && python -m pytest tests/integration/test_coding_tasks.py
-# Traces saved to _test/test_*/traces/ for each test
+# Traces saved to _test/test_*/_trace/ for each test
 
 # Analyze specific trace file
 jq '.call_stack[] | {component, operation, duration}' traces/clay_trace_latest.json
@@ -92,7 +92,7 @@ Clay is an agentic coding system with a modular architecture:
 - **JSON output** with hierarchical structure showing complete call trees
 - **Error handling** with full stack traces preserved in nested structure
 - **Performance timing** with precise duration measurements for each function call
-- **Organized trace storage**: CLI traces in `traces/`, test traces in `_test/<test_name>/traces/`
+- **Organized trace storage**: CLI traces in `traces/`, test traces in `_test/<test_name>/_trace/`
 - **Production-ready monitoring** for debugging complex multi-agent interactions
 
 ## Tracing System Usage
@@ -152,7 +152,7 @@ JSON files in `traces/` contain:
 **Every Clay execution is automatically traced:**
 - **CLI commands**: `python -m clay.cli run "command"` → traces saved to `traces/`
 - **Interactive sessions**: `python -m clay.cli chat` → traces saved with session IDs
-- **Test execution**: All pytest runs save traces to `_test/<test_name>/traces/`
+- **Test execution**: All pytest runs save traces to `_test/<test_name>/_trace/`
 - **Integration tests**: Each test gets its own isolated trace directory
 
 **Common Debugging Workflows:**

@@ -2,6 +2,7 @@
 
 from typing import Dict, Any, Optional
 from .base import Tool, ToolResult, ToolStatus
+from ..trace import trace_operation
 
 
 class MessageTool(Tool):
@@ -48,6 +49,7 @@ class MessageTool(Tool):
             "required": ["message"]
         }
 
+    @trace_operation
     async def execute(self, message: str, category: str = "info", **kwargs) -> ToolResult:
         """Display a message to the user.
 

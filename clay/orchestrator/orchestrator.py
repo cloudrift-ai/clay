@@ -2,12 +2,15 @@
 
 from pathlib import Path
 from typing import Dict, Any
+import json
+from datetime import datetime
 
 from ..agents.llm_agent import LLMAgent
 from ..agents.coding_agent import CodingAgent
 from ..runtime import PlanExecutor, Plan
 from ..llm import completion
 from ..tools.base import ToolStatus
+from ..trace import trace_operation
 
 
 class ClayOrchestrator:
@@ -27,6 +30,7 @@ class ClayOrchestrator:
             tools = agent.tools if hasattr(agent, 'tools') else {}
             self.plan_executors[agent_name] = PlanExecutor(tools)
 
+    @trace_operation
     async def select_agent(self, goal: str) -> str:
         """Use LLM to select the best agent for the task."""
         agent_descriptions = self._build_agent_descriptions()
@@ -56,6 +60,31 @@ Selection criteria are automatically derived from each agent's description and c
 
         return selected_agent
 
+    def _save_plan_to_trace_dir(self, plan: Plan, iteration: int, goal: str) -> Path:
+        """Save the plan to the _trace directory for debugging."""
+        # Create _trace directory in current working directory (same as trace files)
+        trace_dir = Path.cwd() / "_trace"
+        trace_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate filename with timestamp and iteration
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"plan_iter_{iteration:03d}_{timestamp}.json"
+        filepath = trace_dir / filename
+
+        # Create plan data with metadata
+        plan_data = {
+            "iteration": iteration,
+            "timestamp": datetime.now().isoformat(),
+            "goal": goal,
+            "plan": plan.to_dict()
+        }
+
+        # Save to file
+        with open(filepath, 'w') as f:
+            json.dump(plan_data, f, indent=2)
+
+        return filepath
+
     def _build_agent_descriptions(self) -> str:
         """Build a description of available agents."""
         descriptions = []
@@ -66,6 +95,7 @@ Selection criteria are automatically derived from each agent's description and c
             descriptions.append(description)
         return "\n\n".join(descriptions)
 
+    @trace_operation
     async def process_task(self, goal: str) -> Plan:
         """Process a task using iterative agent planning and execution.
 
@@ -91,6 +121,9 @@ Selection criteria are automatically derived from each agent's description and c
 
             # Get initial plan from agent
             plan = await selected_agent.run(goal)
+
+            # Save initial plan (iteration 0)
+            self._save_plan_to_trace_dir(plan, 0, goal)
 
             # Iterative execution loop
             max_iterations = 50  # Safety limit
@@ -120,6 +153,9 @@ Selection criteria are automatically derived from each agent's description and c
                 # Have agent review the plan and update todo list if needed
                 if plan.todo:  # Only review if there are more steps
                     plan = await selected_agent.review_plan(plan, goal)
+
+                # Save plan after each iteration
+                self._save_plan_to_trace_dir(plan, iteration, goal)
 
             # Check if we hit the iteration limit
             if iteration >= max_iterations:

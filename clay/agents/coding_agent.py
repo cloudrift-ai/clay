@@ -6,6 +6,7 @@ from .base import Agent
 from ..llm import completion
 from ..runtime import Plan
 from ..tools import BashTool, MessageTool
+from ..trace import trace_operation
 
 
 class CodingAgent(Agent):
@@ -33,6 +34,7 @@ class CodingAgent(Agent):
             MessageTool()
         ])
 
+    @trace_operation
     async def review_plan(self, plan: Plan, task: str) -> Plan:
         """Review current plan state and update todo list based on completed steps."""
         system_prompt = self._build_system_prompt()

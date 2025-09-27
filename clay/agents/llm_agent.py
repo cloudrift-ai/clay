@@ -4,6 +4,7 @@ from .base import Agent
 from ..llm import completion
 from ..runtime import Plan
 from ..tools import MessageTool
+from ..trace import trace_operation
 
 
 class LLMAgent(Agent):
@@ -31,6 +32,7 @@ class LLMAgent(Agent):
             MessageTool()
         ])
 
+    @trace_operation
     async def review_plan(self, plan: Plan, task: str) -> Plan:
         """Review current plan state and update todo list.
 

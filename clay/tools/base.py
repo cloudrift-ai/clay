@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional, List
 from dataclasses import dataclass
 from enum import Enum
 import json
+from ..trace import trace_operation
 
 
 class ToolStatus(Enum):
@@ -161,6 +162,7 @@ class Tool(ABC):
             if field not in params:
                 raise ToolError(f"Missing required parameter: {field}")
 
+    @trace_operation
     async def run(self, **kwargs) -> ToolResult:
         """Run the tool with validation."""
         try:

@@ -209,6 +209,6 @@ __marimo__/
 # Testing stuff
 _scratchpad
 _test/
-_traces/
+_trace/
 
 /node_modules
