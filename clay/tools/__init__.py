@@ -2,6 +2,7 @@
 
 from .base import Tool, ToolResult, ToolError
 from .bash_tool import BashTool, BashToolResult
+from .message_tool import MessageTool
 
 __all__ = [
     "Tool",
@@ -9,4 +10,5 @@ __all__ = [
     "ToolError",
     "BashTool",
     "BashToolResult",
+    "MessageTool",
 ]

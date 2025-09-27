@@ -5,7 +5,7 @@ from typing import Optional
 from .base import Agent
 from ..llm import completion
 from ..runtime import Plan
-from ..tools import BashTool
+from ..tools import BashTool, MessageTool
 
 
 class CodingAgent(Agent):
@@ -29,7 +29,8 @@ class CodingAgent(Agent):
 
         # Register essential coding tools
         self.register_tools([
-            BashTool()
+            BashTool(),
+            MessageTool()
         ])
 
     async def review_plan(self, plan: Plan, task: str) -> Plan:
@@ -72,10 +73,6 @@ If more steps are needed, specify them in the todo list."""
             plan.todo = new_plan.todo
         else:
             plan.todo = []
-
-        # Update output if provided
-        if new_plan.output:
-            plan.output = new_plan.output
 
         return plan
 

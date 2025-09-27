@@ -92,9 +92,6 @@ Selection criteria are automatically derived from each agent's description and c
             # Get initial plan from agent
             plan = await selected_agent.run(goal)
 
-            if plan.error:
-                return plan  # Return the error plan directly
-
             # Iterative execution loop
             max_iterations = 50  # Safety limit
             iteration = 0
@@ -124,12 +121,19 @@ Selection criteria are automatically derived from each agent's description and c
                 if plan.todo:  # Only review if there are more steps
                     plan = await selected_agent.review_plan(plan, goal)
 
-                    if plan.error:
-                        return plan  # Return if agent reports an error
-
             # Check if we hit the iteration limit
             if iteration >= max_iterations:
-                plan.error = f"Exceeded maximum iterations ({max_iterations}) while executing plan"
+                # Add error message to todo list
+                from ..runtime.plan import Step
+                error_step = Step(
+                    tool_name="message",
+                    parameters={
+                        "message": f"Exceeded maximum iterations ({max_iterations}) while executing plan",
+                        "category": "error"
+                    },
+                    description="Iteration limit exceeded"
+                )
+                plan.todo.append(error_step)
 
             return plan
 

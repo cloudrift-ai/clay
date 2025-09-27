@@ -3,6 +3,7 @@
 from .base import Agent
 from ..llm import completion
 from ..runtime import Plan
+from ..tools import MessageTool
 
 
 class LLMAgent(Agent):
@@ -25,13 +26,19 @@ class LLMAgent(Agent):
         """Initialize the LLM agent."""
         super().__init__(name=self.name, description=self.description)
 
+        # Register message tool for communication
+        self.register_tools([
+            MessageTool()
+        ])
+
     async def review_plan(self, plan: Plan, task: str) -> Plan:
         """Review current plan state and update todo list.
 
         For LLM agent, we typically don't need tools, so just provide a response.
         """
-        # If plan already has output and no remaining todos, return as-is
-        if plan.output and not plan.todo:
+        # If plan has no todos and has a message step in completed, return as-is
+        has_message_step = any(step.tool_name == "message" for step in plan.completed)
+        if not plan.todo and has_message_step:
             return plan
 
         # Generate a response for the task (both initial and review cases)
@@ -54,9 +61,18 @@ Based on the current state, provide a final response or continue with more steps
 
         response = await completion(messages=messages, temperature=0.5)
 
-        # Update plan with response
-        plan.output = response['choices'][0]['message']['content']
+        # Create a message step with the response
+        from ..runtime import Step
+        message_step = Step(
+            tool_name="message",
+            parameters={
+                "message": response['choices'][0]['message']['content'],
+                "category": "info"
+            },
+            description=f"LLM response to: {task[:50]}..."
+        )
+
+        plan.todo = [message_step]
         plan.description = f"LLM response to: {task[:50]}..."
-        plan.todo = []  # LLM agent typically doesn't need tools
 
         return plan

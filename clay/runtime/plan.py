@@ -45,13 +45,11 @@ class Step:
 
 @dataclass
 class Plan:
-    """A complete execution plan containing multiple steps or a simple response."""
+    """A complete execution plan containing multiple steps."""
     todo: List[Step]  # Steps yet to be executed
     completed: List[Step] = None  # Steps that have been completed
     description: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
-    output: Optional[str] = None  # For simple responses without steps
-    error: Optional[str] = None   # For plan-level errors
 
     def __post_init__(self):
         if self.metadata is None:
@@ -60,23 +58,31 @@ class Plan:
             self.completed = []
 
     @classmethod
-    def create_simple_response(cls, output: str, description: Optional[str] = None):
-        """Create a plan for simple responses that don't need execution steps."""
+    def create_simple_response(cls, message: str, description: Optional[str] = None):
+        """Create a plan with a single message step."""
+        message_step = Step(
+            tool_name="message",
+            parameters={"message": message, "category": "info"},
+            description=description or "Simple response"
+        )
         return cls(
-            todo=[],
+            todo=[message_step],
             completed=[],
-            description=description or "Simple response",
-            output=output
+            description=description or "Simple response"
         )
 
     @classmethod
     def create_error_response(cls, error: str, description: Optional[str] = None):
-        """Create a plan for error responses."""
+        """Create a plan with an error message step."""
+        error_step = Step(
+            tool_name="message",
+            parameters={"message": error, "category": "error"},
+            description=description or "Error response"
+        )
         return cls(
-            todo=[],
+            todo=[error_step],
             completed=[],
-            description=description or "Error response",
-            error=error
+            description=description or "Error response"
         )
 
     @property
@@ -126,9 +132,7 @@ class Plan:
             "todo": [step.to_dict() for step in self.todo],
             "completed": [step.to_dict() for step in self.completed],
             "description": self.description,
-            "metadata": self.metadata,
-            "output": self.output,
-            "error": self.error
+            "metadata": self.metadata
         }
 
     def to_json(self) -> str:
@@ -152,9 +156,7 @@ class Plan:
             todo=todo,
             completed=completed,
             description=data.get("description"),
-            metadata=data.get("metadata", {}),
-            output=data.get("output"),
-            error=data.get("error")
+            metadata=data.get("metadata", {})
         )
 
     @classmethod
@@ -212,13 +214,12 @@ class Plan:
             return cls(
                 todo=steps,
                 completed=[],
-                description=data.get("thought", "Generated plan"),
-                output=data.get("output", "Plan created")
+                description=data.get("thought", "Generated plan")
             )
         else:
             # No plan needed - just return simple response
             return cls.create_simple_response(
-                output=data.get("output", "Task completed"),
+                message=data.get("output", "Task completed"),
                 description=data.get("thought", "Simple response")
             )
 
