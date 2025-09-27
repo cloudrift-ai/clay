@@ -84,11 +84,7 @@ Selection criteria are automatically derived from each agent's description and c
             # Run the selected agent
             plan = await selected_agent.run(goal)
 
-            # Print plan execution start
-            plan.print_execution_start()
-
             if plan.error:
-                plan.print_completion()
                 return plan  # Return the error plan directly
 
             # If plan has steps, execute them step by step
@@ -117,11 +113,8 @@ Selection criteria are automatically derived from each agent's description and c
                             error_msg = result.error or "Tool execution failed"
                             plan.mark_step_failed(i, error_msg)
 
-                        # Print step execution immediately after execution
-                        plan.print_step_execution(step)
                     else:
                         plan.mark_step_failed(i, f"Tool {tool_name} not found")
-                        plan.print_step_execution(step)
 
                 # Set final plan status
                 if plan.has_failed:
@@ -129,12 +122,9 @@ Selection criteria are automatically derived from each agent's description and c
                 else:
                     plan.status = PlanStatus.COMPLETED
 
-                # Print completion
-                plan.print_completion()
                 return plan
             else:
                 # No plan needed, just return the simple response plan
-                plan.print_completion()
                 return plan
 
         except Exception as e:
@@ -142,5 +132,4 @@ Selection criteria are automatically derived from each agent's description and c
                 error=str(e),
                 description=f"Orchestrator error processing: {goal[:50]}..."
             )
-            error_plan.print_completion()
             return error_plan
