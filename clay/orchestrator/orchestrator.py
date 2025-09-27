@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 from ..agents.llm_agent import LLMAgent
 from ..agents.coding_agent import CodingAgent
-from ..runtime import PlanExecutor, Plan, PlanStatus
+from ..runtime import PlanExecutor, Plan
 from ..llm import completion
 from ..tools.base import ToolStatus
 
@@ -92,12 +92,7 @@ Selection criteria are automatically derived from each agent's description and c
                 plan_executor = self.plan_executors[selected_agent_name]
 
                 # Execute steps one by one instead of all at once
-                plan.status = PlanStatus.RUNNING
-
                 for i, step in enumerate(plan.steps):
-                    # Execute single step
-                    plan.mark_step_running(i)
-
                     # Execute the tool for this step
                     tool_name = step.tool_name
                     parameters = step.parameters
@@ -106,21 +101,14 @@ Selection criteria are automatically derived from each agent's description and c
                         tool = plan_executor.tools[tool_name]
                         result = await tool.run(**parameters)
 
-                        # Update step status
+                        # Update step result
                         if result.status == ToolStatus.SUCCESS:
                             plan.mark_step_completed(i, result.to_dict())
                         else:
                             error_msg = result.error or "Tool execution failed"
                             plan.mark_step_failed(i, error_msg)
-
                     else:
                         plan.mark_step_failed(i, f"Tool {tool_name} not found")
-
-                # Set final plan status
-                if plan.has_failed:
-                    plan.status = PlanStatus.FAILED
-                else:
-                    plan.status = PlanStatus.COMPLETED
 
                 return plan
             else:

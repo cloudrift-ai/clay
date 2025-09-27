@@ -6,7 +6,7 @@ from enum import Enum
 import asyncio
 
 from ..tools.base import Tool
-from ..runtime import Plan, PlanStep, PlanStatus
+from ..runtime import Plan, PlanStep
 from ..trace import trace_operation
 
 

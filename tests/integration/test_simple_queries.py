@@ -4,7 +4,6 @@ import pytest
 from pathlib import Path
 
 from clay.orchestrator.orchestrator import ClayOrchestrator
-from clay.runtime.plan import PlanStatus
 
 
 @pytest.mark.asyncio
@@ -23,7 +22,7 @@ async def test_basic_math():
         plan = await orchestrator.process_task(query)
 
         # Verify plan structure
-        assert plan.status == PlanStatus.COMPLETED, f"Plan should be completed: {plan.error}"
+        assert not plan.error, f"Plan should not have errors: {plan.error}"
         assert plan.output, "Plan should have output"
         assert len(plan.steps) == 0, "Math queries should not require tool execution"
         assert not plan.error, f"Plan should not have errors: {plan.error}"
@@ -48,7 +47,7 @@ async def test_simple_facts():
         plan = await orchestrator.process_task(query)
 
         # Verify plan structure
-        assert plan.status == PlanStatus.COMPLETED, f"Plan should be completed: {plan.error}"
+        assert not plan.error, f"Plan should not have errors: {plan.error}"
         assert plan.output, "Plan should have output"
         assert len(plan.steps) == 0, "Factual queries should not require tool execution"
         assert not plan.error, f"Plan should not have errors: {plan.error}"
@@ -75,7 +74,7 @@ async def test_simple_definitions():
         plan = await orchestrator.process_task(query)
 
         # Verify plan structure
-        assert plan.status == PlanStatus.COMPLETED, f"Plan should be completed: {plan.error}"
+        assert not plan.error, f"Plan should not have errors: {plan.error}"
         assert plan.output, "Plan should have output"
         assert len(plan.steps) == 0, "Definition queries should not require tool execution"
         assert not plan.error, f"Plan should not have errors: {plan.error}"
@@ -102,7 +101,7 @@ async def test_informational_queries():
         plan = await orchestrator.process_task(query)
 
         # Verify plan structure - informational queries should not execute tools
-        assert plan.status == PlanStatus.COMPLETED, f"Plan should be completed: {plan.error}"
+        assert not plan.error, f"Plan should not have errors: {plan.error}"
         assert plan.output, "Plan should have output"
         assert len(plan.steps) == 0, "Informational queries should not require tool execution"
         assert not plan.error, f"Plan should not have errors: {plan.error}"
@@ -128,14 +127,14 @@ async def test_actual_file_operations():
         plan = await orchestrator.process_task(query)
 
         # Verify plan structure - actual file operations should execute tools
-        assert plan.status == PlanStatus.COMPLETED, f"Plan should be completed: {plan.error}"
+        assert not plan.error, f"Plan should not have errors: {plan.error}"
         assert len(plan.steps) > 0, f"File operations should require tool execution: {query}"
         assert not plan.error, f"Plan should not have errors: {plan.error}"
 
         # Verify first step uses expected tool
         first_step = plan.steps[0]
         assert first_step.tool_name == expected_tool, f"Expected {expected_tool} tool, got {first_step.tool_name}"
-        assert first_step.status == PlanStatus.COMPLETED, f"Tool execution should be completed"
+        assert first_step.result is not None, f"Tool execution should have a result"
 
         # Verify tool parameters contain expected command
         if expected_tool == "bash":
@@ -160,7 +159,7 @@ async def test_simple_comparisons():
         plan = await orchestrator.process_task(query)
 
         # Verify plan structure
-        assert plan.status == PlanStatus.COMPLETED, f"Plan should be completed: {plan.error}"
+        assert not plan.error, f"Plan should not have errors: {plan.error}"
         assert plan.output, "Plan should have output"
         assert len(plan.steps) == 0, "Comparison queries should not require tool execution"
         assert not plan.error, f"Plan should not have errors: {plan.error}"
@@ -186,14 +185,14 @@ async def test_coding_tasks_with_tool_execution():
         plan = await orchestrator.process_task(query)
 
         # Verify plan structure - coding tasks should execute tools
-        assert plan.status == PlanStatus.COMPLETED, f"Plan should be completed: {plan.error}"
+        assert not plan.error, f"Plan should not have errors: {plan.error}"
         assert len(plan.steps) > 0, f"Coding tasks should require tool execution: {query}"
         assert not plan.error, f"Plan should not have errors: {plan.error}"
 
         # Verify first step uses expected tool
         first_step = plan.steps[0]
         assert first_step.tool_name == expected_tool, f"Expected {expected_tool} tool, got {first_step.tool_name}"
-        assert first_step.status == PlanStatus.COMPLETED, f"Tool execution should be completed"
+        assert first_step.result is not None, f"Tool execution should have a result"
 
         # Verify tool parameters contain expected content
         if expected_tool == "bash":

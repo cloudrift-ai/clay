@@ -4,7 +4,7 @@ import asyncio
 from typing import Dict, Any, List
 from ..tools.base import Tool, ToolResult, ToolStatus
 from ..trace import trace_operation
-from .plan import Plan, PlanStep, PlanStatus
+from .plan import Plan, PlanStep
 
 
 class PlanExecutor:
@@ -17,45 +17,24 @@ class PlanExecutor:
     @trace_operation
     async def execute_plan(self, plan: Plan) -> Dict[str, Any]:
         """Execute a complete plan."""
-        plan.status = PlanStatus.RUNNING
-
         try:
-            while not plan.is_complete and not plan.has_failed:
-                # Get steps that are ready to execute
-                executable_steps = plan.get_next_executable_steps()
-
-                if not executable_steps:
-                    # No more executable steps - either done or blocked
-                    if plan.is_complete:
-                        break
-                    else:
-                        # All remaining steps are blocked by failed dependencies
-                        plan.status = PlanStatus.FAILED
-                        return {
-                            "status": "failed",
-                            "error": "Plan execution blocked by failed dependencies",
-                            "plan": plan
-                        }
-
-                # Execute all ready steps in parallel
-                await self._execute_steps_parallel(plan, executable_steps)
+            # Execute all steps sequentially
+            for i, step in enumerate(plan.steps):
+                await self._execute_single_step(plan, i)
 
             # Determine final status
             if plan.has_failed:
-                plan.status = PlanStatus.FAILED
                 return {
                     "status": "failed",
                     "error": "One or more steps failed",
                     "plan": plan
                 }
             elif plan.is_complete:
-                plan.status = PlanStatus.COMPLETED
                 return {
                     "status": "success",
                     "plan": plan
                 }
             else:
-                plan.status = PlanStatus.FAILED
                 return {
                     "status": "failed",
                     "error": "Plan execution incomplete",
@@ -63,7 +42,6 @@ class PlanExecutor:
                 }
 
         except Exception as e:
-            plan.status = PlanStatus.FAILED
             return {
                 "status": "error",
                 "error": str(e),
@@ -86,7 +64,6 @@ class PlanExecutor:
     async def _execute_single_step(self, plan: Plan, step_index: int):
         """Execute a single step."""
         step = plan.steps[step_index]
-        plan.mark_step_running(step_index)
 
         try:
             # Execute the tool

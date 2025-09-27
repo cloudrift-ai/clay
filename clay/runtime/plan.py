@@ -2,17 +2,7 @@
 
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
-from enum import Enum
 import json
-
-
-class PlanStatus(Enum):
-    """Status of plan execution."""
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 @dataclass
@@ -22,7 +12,6 @@ class PlanStep:
     parameters: Dict[str, Any]
     description: Optional[str] = None
     depends_on: Optional[List[int]] = None  # Indices of steps this depends on
-    status: PlanStatus = PlanStatus.PENDING
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
 
@@ -37,7 +26,6 @@ class PlanStep:
             "parameters": self.parameters,
             "description": self.description,
             "depends_on": self.depends_on,
-            "status": self.status.value,
             "result": self.result,
             "error": self.error
         }
@@ -50,7 +38,6 @@ class PlanStep:
             parameters=data.get("parameters", {}),
             description=data.get("description"),
             depends_on=data.get("depends_on", []),
-            status=PlanStatus(data.get("status", PlanStatus.PENDING.value)),
             result=data.get("result"),
             error=data.get("error")
         )
@@ -61,7 +48,6 @@ class Plan:
     """A complete execution plan containing multiple steps or a simple response."""
     steps: List[PlanStep]
     description: Optional[str] = None
-    status: PlanStatus = PlanStatus.PENDING
     current_step: int = 0
     metadata: Optional[Dict[str, Any]] = None
     output: Optional[str] = None  # For simple responses without steps
@@ -77,7 +63,6 @@ class Plan:
         return cls(
             steps=[],
             description=description or "Simple response",
-            status=PlanStatus.COMPLETED,
             output=output
         )
 
@@ -87,49 +72,27 @@ class Plan:
         return cls(
             steps=[],
             description=description or "Error response",
-            status=PlanStatus.FAILED,
             error=error
         )
 
     @property
     def is_complete(self) -> bool:
         """Check if all steps are completed."""
-        return all(step.status == PlanStatus.COMPLETED for step in self.steps)
+        return all(step.result is not None for step in self.steps)
 
     @property
     def has_failed(self) -> bool:
         """Check if any step has failed."""
-        return any(step.status == PlanStatus.FAILED for step in self.steps)
-
-    def get_next_executable_steps(self) -> List[int]:
-        """Get indices of steps that are ready to execute."""
-        executable = []
-        for i, step in enumerate(self.steps):
-            if step.status != PlanStatus.PENDING:
-                continue
-
-            # Check if all dependencies are completed
-            if all(self.steps[dep].status == PlanStatus.COMPLETED
-                   for dep in step.depends_on):
-                executable.append(i)
-
-        return executable
-
-    def mark_step_running(self, step_index: int):
-        """Mark a step as running."""
-        if 0 <= step_index < len(self.steps):
-            self.steps[step_index].status = PlanStatus.RUNNING
+        return any(step.error is not None for step in self.steps)
 
     def mark_step_completed(self, step_index: int, result: Dict[str, Any]):
         """Mark a step as completed with result."""
         if 0 <= step_index < len(self.steps):
-            self.steps[step_index].status = PlanStatus.COMPLETED
             self.steps[step_index].result = result
 
     def mark_step_failed(self, step_index: int, error: str):
         """Mark a step as failed with error."""
         if 0 <= step_index < len(self.steps):
-            self.steps[step_index].status = PlanStatus.FAILED
             self.steps[step_index].error = error
 
     def to_dict(self) -> Dict[str, Any]:
@@ -137,7 +100,6 @@ class Plan:
         return {
             "steps": [step.to_dict() for step in self.steps],
             "description": self.description,
-            "status": self.status.value,
             "current_step": self.current_step,
             "metadata": self.metadata,
             "output": self.output,
@@ -155,7 +117,6 @@ class Plan:
         return cls(
             steps=steps,
             description=data.get("description"),
-            status=PlanStatus(data.get("status", PlanStatus.PENDING.value)),
             current_step=data.get("current_step", 0),
             metadata=data.get("metadata", {}),
             output=data.get("output"),
