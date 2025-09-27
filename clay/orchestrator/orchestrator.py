@@ -1,7 +1,7 @@
 """Clay orchestrator that uses agents to create plans and runtime to execute them."""
 
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import json
 from datetime import datetime
 
@@ -10,14 +10,18 @@ from ..agents.coding_agent import CodingAgent
 from ..runtime import PlanExecutor, Plan
 from ..llm import completion
 from ..tools.base import ToolStatus
-from ..trace import trace_operation
+from ..trace import trace_operation, clear_trace, save_trace_file, set_session_id
 
 
 class ClayOrchestrator:
     """Orchestrator that coordinates agents and plan execution."""
 
-    def __init__(self):
-        """Initialize the orchestrator with all available agents."""
+    def __init__(self, traces_dir: Optional[Path] = None):
+        """Initialize the orchestrator with all available agents.
+
+        Args:
+            traces_dir: Directory to save traces and plan files. If None, uses current directory's _trace/
+        """
         # Initialize all available agents
         self.agents = {
             'llm_agent': LLMAgent(),
@@ -29,6 +33,9 @@ class ClayOrchestrator:
         for agent_name, agent in self.agents.items():
             tools = agent.tools if hasattr(agent, 'tools') else {}
             self.plan_executors[agent_name] = PlanExecutor(tools)
+
+        # Set traces directory
+        self.traces_dir = traces_dir
 
     @trace_operation
     async def select_agent(self, goal: str) -> str:
@@ -61,9 +68,12 @@ Selection criteria are automatically derived from each agent's description and c
         return selected_agent
 
     def _save_plan_to_trace_dir(self, plan: Plan, iteration: int, goal: str) -> Path:
-        """Save the plan to the _trace directory for debugging."""
-        # Create _trace directory in current working directory (same as trace files)
-        trace_dir = Path.cwd() / "_trace"
+        """Save the plan to the traces directory for debugging."""
+        # Use configured traces directory or default to current directory's _trace
+        if self.traces_dir:
+            trace_dir = self.traces_dir
+        else:
+            trace_dir = Path.cwd() / "_trace"
         trace_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate filename with timestamp and iteration
@@ -114,6 +124,14 @@ Selection criteria are automatically derived from each agent's description and c
             )
 
         try:
+            # Set up tracing if traces directory is configured
+            session_id = None
+            if self.traces_dir:
+                # Clear previous traces and set up new session
+                clear_trace()
+                session_id = f"orchestrator_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                set_session_id(session_id)
+
             # Select the best agent for the task
             selected_agent_name = await self.select_agent(goal)
             selected_agent = self.agents[selected_agent_name]
@@ -157,6 +175,10 @@ Selection criteria are automatically derived from each agent's description and c
                 # Save plan after each iteration
                 self._save_plan_to_trace_dir(plan, iteration, goal)
 
+                # Save trace after each iteration (overwrites same file for real-time updates)
+                if self.traces_dir and session_id:
+                    save_trace_file(session_id, self.traces_dir)
+
             # Check if we hit the iteration limit
             if iteration >= max_iterations:
                 # Add error message to todo list
@@ -174,6 +196,10 @@ Selection criteria are automatically derived from each agent's description and c
             return plan
 
         except Exception as e:
+            # Save error trace if traces directory is configured
+            if self.traces_dir and session_id:
+                save_trace_file(f"{session_id}_error", self.traces_dir)
+
             error_plan = Plan.create_error_response(
                 error=str(e),
                 description=f"Orchestrator error processing: {goal[:50]}..."
