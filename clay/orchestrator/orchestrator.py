@@ -67,7 +67,14 @@ Selection criteria are automatically derived from each agent's description and c
         return "\n\n".join(descriptions)
 
     async def process_task(self, goal: str) -> Plan:
-        """Process a task using agent selection, planning, and runtime execution."""
+        """Process a task using iterative agent planning and execution.
+
+        The process:
+        1. Agent creates initial plan
+        2. Execute next step from todo list
+        3. Agent reviews plan with completed step and updates todo list
+        4. Repeat until todo list is empty
+        """
 
         working_dir = Path.cwd()
         if not working_dir.exists():
@@ -80,40 +87,51 @@ Selection criteria are automatically derived from each agent's description and c
             # Select the best agent for the task
             selected_agent_name = await self.select_agent(goal)
             selected_agent = self.agents[selected_agent_name]
+            plan_executor = self.plan_executors[selected_agent_name]
 
-            # Run the selected agent
+            # Get initial plan from agent
             plan = await selected_agent.run(goal)
 
             if plan.error:
                 return plan  # Return the error plan directly
 
-            # If plan has steps, execute them step by step
-            if plan.steps:
-                plan_executor = self.plan_executors[selected_agent_name]
+            # Iterative execution loop
+            max_iterations = 50  # Safety limit
+            iteration = 0
 
-                # Execute steps one by one instead of all at once
-                for i, step in enumerate(plan.steps):
-                    # Execute the tool for this step
-                    tool_name = step.tool_name
-                    parameters = step.parameters
+            while plan.todo and iteration < max_iterations:
+                iteration += 1
 
-                    if tool_name in plan_executor.tools:
-                        tool = plan_executor.tools[tool_name]
-                        result = await tool.run(**parameters)
+                # Execute the next step
+                next_step = plan.todo[0]
+                tool_name = next_step.tool_name
+                parameters = next_step.parameters
 
-                        # Update step result
-                        if result.status == ToolStatus.SUCCESS:
-                            plan.mark_step_completed(i, result.to_dict())
-                        else:
-                            error_msg = result.error or "Tool execution failed"
-                            plan.mark_step_failed(i, error_msg)
+                if tool_name in plan_executor.tools:
+                    tool = plan_executor.tools[tool_name]
+                    result = await tool.run(**parameters)
+
+                    # Move step to completed with result
+                    if result.status == ToolStatus.SUCCESS:
+                        plan.complete_next_step(result=result.to_dict())
                     else:
-                        plan.mark_step_failed(i, f"Tool {tool_name} not found")
+                        error_msg = result.error or "Tool execution failed"
+                        plan.complete_next_step(error=error_msg)
+                else:
+                    plan.complete_next_step(error=f"Tool {tool_name} not found")
 
-                return plan
-            else:
-                # No plan needed, just return the simple response plan
-                return plan
+                # Have agent review the plan and update todo list if needed
+                if plan.todo:  # Only review if there are more steps
+                    plan = await selected_agent.review_plan(plan, goal)
+
+                    if plan.error:
+                        return plan  # Return if agent reports an error
+
+            # Check if we hit the iteration limit
+            if iteration >= max_iterations:
+                plan.error = f"Exceeded maximum iterations ({max_iterations}) while executing plan"
+
+            return plan
 
         except Exception as e:
             error_plan = Plan.create_error_response(

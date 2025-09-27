@@ -4,7 +4,7 @@ import asyncio
 from typing import Dict, Any, List
 from ..tools.base import Tool, ToolResult, ToolStatus
 from ..trace import trace_operation
-from .plan import Plan, PlanStep
+from .plan import Plan, Step
 
 
 class PlanExecutor:

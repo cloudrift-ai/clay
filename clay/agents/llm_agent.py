@@ -25,15 +25,38 @@ class LLMAgent(Agent):
         """Initialize the LLM agent."""
         super().__init__(name=self.name, description=self.description)
 
-    async def think(self, plan: Plan) -> Plan:
-        """Think about and respond to a plan."""
-        prompt = plan.output or plan.description or "No prompt provided"
+    async def review_plan(self, plan: Plan, task: str) -> Plan:
+        """Review current plan state and update todo list.
+
+        For LLM agent, we typically don't need tools, so just provide a response.
+        """
+        # If plan already has output and no remaining todos, return as-is
+        if plan.output and not plan.todo:
+            return plan
+
+        # Generate a response for the task (both initial and review cases)
+        if plan.completed:
+            # This is a review - we have completed steps
+            user_message = f"""Task: {task}
+
+Current plan state:
+{plan.to_json()}
+
+Based on the current state, provide a final response or continue with more steps."""
+        else:
+            # This is initial planning
+            user_message = task
+
         messages = [
-            {"role": "system", "content": "You are a helpful AI assistant."},
-            {"role": "user", "content": prompt}
+            {"role": "system", "content": "You are a helpful AI assistant. Provide clear, concise answers. For most tasks, you don't need tools - just provide the information directly."},
+            {"role": "user", "content": user_message}
         ]
+
         response = await completion(messages=messages, temperature=0.5)
-        return Plan.create_simple_response(
-            output=response['choices'][0]['message']['content'],
-            description=f"LLM response to: {prompt[:50]}..."
-        )
+
+        # Update plan with response
+        plan.output = response['choices'][0]['message']['content']
+        plan.description = f"LLM response to: {task[:50]}..."
+        plan.todo = []  # LLM agent typically doesn't need tools
+
+        return plan

@@ -6,7 +6,7 @@ from enum import Enum
 import asyncio
 
 from ..tools.base import Tool
-from ..runtime import Plan, PlanStep
+from ..runtime import Plan, Step
 from ..trace import trace_operation
 
 
@@ -59,7 +59,7 @@ class Agent(ABC):
 
 {
     "thought": "I need to analyze the task and decide what tools to use",
-    "plan": [
+    "todo": [
         {
             "tool_name": "tool_name_here",
             "parameters": {
@@ -69,13 +69,14 @@ class Agent(ABC):
             "description": "What this step accomplishes"
         }
     ],
-    "output": "Summary of the plan created"
+    "output": "Summary of the plan or next actions"
 }
 
-If no tools are needed for information-only responses:
+If no more tools are needed:
 {
-    "thought": "This is a question that doesn't require tool usage",
-    "output": "Here is the information you requested..."
+    "thought": "Task is complete or no tools needed",
+    "todo": [],
+    "output": "Final response or information"
 }"""
 
     def get_tools_summary(self) -> Dict[str, Dict[str, Any]]:
@@ -92,19 +93,19 @@ If no tools are needed for information-only responses:
 
 
     @abstractmethod
-    async def think(self, plan: Plan) -> Plan:
-        """Process a plan and decide on actions."""
+    async def review_plan(self, plan: Plan, task: str) -> Plan:
+        """Review current plan state and update todo list based on completed steps."""
         pass
 
     @trace_operation
     async def run(self, prompt: str) -> Plan:
-        """Run the agent with a prompt to produce a plan."""
+        """Run the agent with a prompt to produce an initial plan."""
         self.status = AgentStatus.THINKING
 
         try:
-            # Create initial plan with the prompt
-            initial_plan = Plan.create_simple_response(prompt, f"Initial prompt: {prompt[:50]}...")
-            plan = await self.think(initial_plan)
+            # Create empty plan and let agent populate it
+            empty_plan = Plan(todo=[], completed=[])
+            plan = await self.review_plan(empty_plan, prompt)
 
             # Add agent information to plan metadata
             if not plan.metadata:
