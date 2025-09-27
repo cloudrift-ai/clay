@@ -5,8 +5,9 @@ from typing import Dict, Any
 
 from ..agents.llm_agent import LLMAgent
 from ..agents.coding_agent import CodingAgent
-from ..runtime import PlanExecutor, Plan
+from ..runtime import PlanExecutor, Plan, PlanStatus
 from ..llm import completion
+from ..tools.base import ToolStatus
 
 
 class ClayOrchestrator:
@@ -90,19 +91,47 @@ Selection criteria are automatically derived from each agent's description and c
                 plan.print_completion()
                 return plan  # Return the error plan directly
 
-            # If plan has steps, execute them using the appropriate executor
+            # If plan has steps, execute them step by step
             if plan.steps:
                 plan_executor = self.plan_executors[selected_agent_name]
-                execution_result = await plan_executor.execute_plan(plan)
-                executed_plan = execution_result["plan"]
 
-                # Print step executions
-                for step in executed_plan.steps:
-                    executed_plan.print_step_execution(step)
+                # Execute steps one by one instead of all at once
+                plan.status = PlanStatus.RUNNING
+
+                for i, step in enumerate(plan.steps):
+                    # Execute single step
+                    plan.mark_step_running(i)
+
+                    # Execute the tool for this step
+                    tool_name = step.tool_name
+                    parameters = step.parameters
+
+                    if tool_name in plan_executor.tools:
+                        tool = plan_executor.tools[tool_name]
+                        result = await tool.run(**parameters)
+
+                        # Update step status
+                        if result.status == ToolStatus.SUCCESS:
+                            plan.mark_step_completed(i, result.to_dict())
+                        else:
+                            error_msg = result.error or "Tool execution failed"
+                            plan.mark_step_failed(i, error_msg)
+
+                        # Print step execution immediately after execution
+                        plan.print_step_execution(step)
+                    else:
+                        plan.mark_step_failed(i, f"Tool {tool_name} not found")
+                        plan.print_step_execution(step)
+
+                # Set final plan status
+                if plan.has_failed:
+                    plan.status = PlanStatus.FAILED
+                else:
+                    plan.status = PlanStatus.COMPLETED
 
                 # Print completion
-                executed_plan.print_completion()
-                return executed_plan
+                plan.print_completion()
+                return plan
             else:
                 # No plan needed, just return the simple response plan
                 plan.print_completion()
