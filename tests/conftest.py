@@ -36,7 +36,7 @@ def auto_cleanup(request):
     # Save trace file if there are any trace events
     try:
         collector = get_trace_collector()
-        events = collector.get_events()
+        events = collector.get_nested_calls()
         if events:
             # Save trace in the test directory before changing back
             trace_filepath = save_trace_file(test_name)

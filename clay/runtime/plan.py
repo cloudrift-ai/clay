@@ -112,19 +112,6 @@ class Plan:
             return step
         return None
 
-    def mark_step_completed(self, step_index: int, result: Dict[str, Any]):
-        """Legacy method - mark a step as completed with result."""
-        # For backward compatibility, assuming step_index refers to all steps
-        all_steps = self.steps
-        if 0 <= step_index < len(all_steps):
-            all_steps[step_index].result = result
-
-    def mark_step_failed(self, step_index: int, error: str):
-        """Legacy method - mark a step as failed with error."""
-        # For backward compatibility, assuming step_index refers to all steps
-        all_steps = self.steps
-        if 0 <= step_index < len(all_steps):
-            all_steps[step_index].error = error
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert Plan to dictionary."""
@@ -142,15 +129,8 @@ class Plan:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Plan":
         """Create Plan from dictionary."""
-        # Handle both new format (todo/completed) and old format (steps)
-        if "todo" in data or "completed" in data:
-            todo = [Step.from_dict(step_data) for step_data in data.get("todo", [])]
-            completed = [Step.from_dict(step_data) for step_data in data.get("completed", [])]
-        else:
-            # Backward compatibility: if only "steps" exists, put them all in todo
-            steps = [Step.from_dict(step_data) for step_data in data.get("steps", [])]
-            todo = steps
-            completed = []
+        todo = [Step.from_dict(step_data) for step_data in data.get("todo", [])]
+        completed = [Step.from_dict(step_data) for step_data in data.get("completed", [])]
 
         return cls(
             todo=todo,
@@ -197,8 +177,7 @@ class Plan:
     @classmethod
     def _create_plan_from_data(cls, data: dict) -> "Plan":
         """Create Plan from parsed JSON data."""
-        # Handle both "plan" (legacy) and "todo" (new) formats
-        todo_data = data.get("todo", data.get("plan", []))
+        todo_data = data.get("todo", [])
 
         if todo_data:
             # Create plan steps

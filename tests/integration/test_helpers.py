@@ -43,7 +43,6 @@ async def run_clay_command(query: str, working_dir=None):
             line.startswith('➤') or line.strip().startswith('→') or
             line.startswith('Task ') or line.strip() == '' or
             line.startswith('Warning: Failed to initialize Clay orchestrator:') or
-            line.startswith('Falling back to legacy agent system') or
             'Thinking with' in line):
             continue
 

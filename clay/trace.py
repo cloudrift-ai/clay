@@ -246,9 +246,6 @@ class TraceCollector:
         with self._lock:
             return self._nested_calls.copy()
 
-    def get_events(self) -> List[NestedTraceCall]:
-        """Get all nested calls (compatibility method)."""
-        return self.get_nested_calls()
 
     def save_to_file(self, filepath: Path):
         """Save nested calls to JSON file."""
