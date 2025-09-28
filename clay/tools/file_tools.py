@@ -26,6 +26,24 @@ class FileToolResult(ToolResult):
         })
         return base_dict
 
+    def console_summary(self) -> str:
+        """Get a console-friendly summary of the file operation."""
+        if self.status == ToolStatus.SUCCESS:
+            operation_desc = {
+                "read": "Read",
+                "write": "Created",
+                "update": "Updated"
+            }.get(self.operation, "Modified")
+
+            file_display = self.file_path if self.file_path else "file"
+
+            if self.lines_affected:
+                return f"✅ {operation_desc} {file_display} ({self.lines_affected} lines)"
+            else:
+                return f"✅ {operation_desc} {file_display}"
+        else:
+            return f"❌ File operation failed: {self.error}"
+
     def get_formatted_output(self) -> str:
         """Get formatted output for Claude Code style display."""
         if self.status == ToolStatus.SUCCESS:
@@ -358,15 +376,16 @@ class UpdateTool(Tool):
         additions = sum(1 for line in diff_lines if line.startswith('+') and not line.startswith('+++'))
         deletions = sum(1 for line in diff_lines if line.startswith('-') and not line.startswith('---'))
 
-        # Build summary line
+        # Build summary line with the tool call format
+        file_name = Path(file_path).name
         if additions > 0 and deletions > 0:
-            summary = f"Updated {file_path} with {additions} additions and {deletions} deletions"
+            summary = f"⏺ Update {file_name} with {additions} additions and {deletions} deletions"
         elif additions > 0:
-            summary = f"Updated {file_path} with {additions} additions"
+            summary = f"⏺ Update {file_name} with {additions} additions"
         elif deletions > 0:
-            summary = f"Updated {file_path} with {deletions} deletions"
+            summary = f"⏺ Update {file_name} with {deletions} deletions"
         else:
-            summary = f"Updated {file_path}"
+            summary = f"⏺ Update {file_name}"
 
         output_lines = [summary]
 
