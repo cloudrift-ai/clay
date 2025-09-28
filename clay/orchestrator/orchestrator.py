@@ -7,7 +7,7 @@ from datetime import datetime
 
 from ..agents.llm_agent import LLMAgent
 from ..agents.coding_agent import CodingAgent
-from ..runtime import PlanExecutor, Plan
+from ..runtime import Plan
 from ..llm import completion
 from ..tools.base import ToolStatus
 from ..trace import trace_operation, clear_trace, save_trace_file, set_session_id
@@ -28,11 +28,10 @@ class ClayOrchestrator:
             'coding_agent': CodingAgent()
         }
 
-        # Create plan executors for each agent's tools
-        self.plan_executors = {}
+        # Create tool registries for each agent
+        self.agent_tools = {}
         for agent_name, agent in self.agents.items():
-            tools = agent.tools if hasattr(agent, 'tools') else {}
-            self.plan_executors[agent_name] = PlanExecutor(tools)
+            self.agent_tools[agent_name] = agent.tools if hasattr(agent, 'tools') else {}
 
         # Set traces directory
         self.traces_dir = traces_dir
@@ -135,7 +134,7 @@ Selection criteria are automatically derived from each agent's description and c
             # Select the best agent for the task
             selected_agent_name = await self.select_agent(goal)
             selected_agent = self.agents[selected_agent_name]
-            plan_executor = self.plan_executors[selected_agent_name]
+            agent_tools = self.agent_tools[selected_agent_name]
 
             # Get initial plan from agent
             plan = await selected_agent.run(goal)
@@ -155,8 +154,8 @@ Selection criteria are automatically derived from each agent's description and c
                 tool_name = next_step.tool_name
                 parameters = next_step.parameters
 
-                if tool_name in plan_executor.tools:
-                    tool = plan_executor.tools[tool_name]
+                if tool_name in agent_tools:
+                    tool = agent_tools[tool_name]
                     result = await tool.run(**parameters)
 
                     # Move step to completed with result
