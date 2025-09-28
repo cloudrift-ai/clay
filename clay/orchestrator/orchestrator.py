@@ -193,18 +193,13 @@ Selection criteria are automatically derived from each agent's description and c
 
     def _print_initial_todo_list(self, plan: Plan) -> None:
         """Print the initial todo list."""
-        print("\n" + "="*60)
         print(f"📋 PLANNED TASKS ({len(plan.todo)} total):")
-        print("="*60)
 
         for i, step in enumerate(plan.todo[:8], 1):  # Show first 8 tasks
             print(f"  {i}. {step.description}")
 
         if len(plan.todo) > 8:
             print(f"  ... and {len(plan.todo) - 8} more tasks")
-
-        print("="*60)
-        print("🚀 Starting execution...\n")
 
     def _print_completion_status(self, plan: Plan) -> None:
         """Print final completion status."""
@@ -247,11 +242,6 @@ Selection criteria are automatically derived from each agent's description and c
 
             # Get initial plan from agent
             plan = await selected_agent.run(goal)
-
-            # Print initial task info only
-            print(f"\n🎯 Task: {goal}")
-            print(f"🤖 Agent: {selected_agent_name}")
-            print()  # Add blank line before tool executions start
 
             # Save initial plan (iteration 0)
             self._save_plan_to_trace_dir(plan, 0, goal)
