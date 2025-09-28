@@ -30,37 +30,6 @@ class BashToolResult(ToolResult):
         })
         return base_dict
 
-    def serialize_human_readable(self, max_lines: int = 10) -> str:
-        """Serialize a human-readable version with bash-specific formatting."""
-        result = {
-            "status": self.status.value,
-            "command": self.command,
-            "return_code": self.return_code,
-            "working_dir": self.working_dir
-        }
-
-        if self.error:
-            result["error"] = self.error
-
-        # Handle stdout with line limiting
-        if self.stdout:
-            lines = self.stdout.splitlines()
-            if len(lines) <= max_lines:
-                result["stdout"] = self.stdout
-            else:
-                truncated_output = '\n'.join(lines[:max_lines])
-                result["stdout"] = truncated_output + f"\n... (truncated, showing {max_lines} of {len(lines)} lines)"
-
-        # Handle stderr with line limiting
-        if self.stderr:
-            lines = self.stderr.splitlines()
-            if len(lines) <= max_lines:
-                result["stderr"] = self.stderr
-            else:
-                truncated_output = '\n'.join(lines[:max_lines])
-                result["stderr"] = truncated_output + f"\n... (truncated, showing {max_lines} of {len(lines)} lines)"
-
-        return json.dumps(result, indent=2)
 
     def get_summary(self) -> str:
         """Get a one-line summary of the command execution."""

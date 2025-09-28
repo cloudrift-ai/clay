@@ -71,42 +71,6 @@ class TestBashToolResult:
         assert parsed["return_code"] == 0
         assert parsed["stdout"] == "test\n"
 
-    def test_serialize_human_readable_short_output(self):
-        """Test human-readable serialization with short output."""
-        result = BashToolResult(
-            status=ToolStatus.SUCCESS,
-            command="echo hello",
-            return_code=0,
-            stdout="hello\nworld\n",
-            stderr="",
-            working_dir="/tmp"
-        )
-
-        human_readable = result.serialize_human_readable(max_lines=10)
-        parsed = json.loads(human_readable)
-
-        assert parsed["status"] == "success"
-        assert parsed["command"] == "echo hello"
-        assert parsed["stdout"] == "hello\nworld\n"  # Should not be truncated
-
-    def test_serialize_human_readable_long_output(self):
-        """Test human-readable serialization with long output (truncation)."""
-        long_output = "\n".join([f"line{i}" for i in range(20)])
-        result = BashToolResult(
-            status=ToolStatus.SUCCESS,
-            command="long command",
-            return_code=0,
-            stdout=long_output,
-            stderr="",
-            working_dir="/tmp"
-        )
-
-        human_readable = result.serialize_human_readable(max_lines=5)
-        parsed = json.loads(human_readable)
-
-        assert parsed["status"] == "success"
-        assert "truncated, showing 5 of 20 lines" in parsed["stdout"]
-        assert "line0\nline1\nline2\nline3\nline4" in parsed["stdout"]
 
     def test_get_summary_ls_command(self):
         """Test get_summary for ls command."""
