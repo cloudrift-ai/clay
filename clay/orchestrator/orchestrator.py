@@ -19,14 +19,15 @@ class ClayOrchestrator:
         """Initialize the orchestrator with all available agents.
 
         Args:
-            traces_dir: Directory to save traces and plan files. If None, uses current directory's _trace/
+            traces_dir: Directory to save traces and plan files. If None, uses _trace/
             interactive: Enable interactive mode with user input prompts during execution
         """
         from ..agents.llm_agent import LLMAgent
         from ..agents.coding_agent import CodingAgent
 
-        # Set configuration first
-        self.traces_dir = traces_dir
+        # Set configuration first - always use _trace directory
+        self.traces_dir = Path("_trace")
+        self.traces_dir.mkdir(exist_ok=True)
         self.interactive = interactive
 
         # Initialize all available agents
@@ -83,23 +84,19 @@ Selection criteria are automatically derived from each agent's description and c
 
     def _save_plan_to_trace_dir(self, plan: Plan, iteration: int) -> Path:
         """Save the plan to the traces directory for debugging."""
-        # Use configured traces directory or default to current directory's _trace
-        if self.traces_dir:
-            trace_dir = self.traces_dir
-        else:
-            trace_dir = Path.cwd() / "_trace"
+        # Always use _trace directory
+        trace_dir = self.traces_dir
         trace_dir.mkdir(parents=True, exist_ok=True)
 
-        # Generate filename with timestamp and iteration
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"plan_iter_{iteration:03d}_{timestamp}.json"
+        # Use simple filename that overwrites previous iterations
+        filename = f"plan_iter_{iteration:03d}.json"
         filepath = trace_dir / filename
 
         # Create plan data with optimized structure for KV-cache
         # Goal is now embedded in UserMessageTool, no need for separate goal field
         plan_data = plan.to_dict()
 
-        # Save to file
+        # Save to file (overwrites existing)
         with open(filepath, 'w') as f:
             json.dump(plan_data, f, indent=2)
 
@@ -269,13 +266,10 @@ Selection criteria are automatically derived from each agent's description and c
             )
 
         try:
-            # Set up tracing if traces directory is configured
-            session_id = None
-            if self.traces_dir:
-                # Clear previous traces and set up new session
-                clear_trace()
-                session_id = f"orchestrator_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                set_session_id(session_id)
+            # Set up tracing with single session
+            clear_trace()
+            session_id = "clay_session"
+            set_session_id(session_id)
 
             # Create initial plan with UserMessageTool
             from clay.orchestrator.plan import Step, Plan
@@ -359,9 +353,8 @@ Selection criteria are automatically derived from each agent's description and c
                 # Save plan after each iteration
                 self._save_plan_to_trace_dir(plan, iteration)
 
-                # Save trace after each iteration (overwrites same file for real-time updates)
-                if self.traces_dir and session_id:
-                    save_trace_file(session_id, self.traces_dir)
+                # Save trace after each iteration (overwrites same file)
+                save_trace_file(session_id, self.traces_dir)
 
             # Check if we hit the iteration limit
             if iteration >= max_iterations:
@@ -384,9 +377,8 @@ Selection criteria are automatically derived from each agent's description and c
             return plan
 
         except Exception as e:
-            # Save error trace if traces directory is configured
-            if self.traces_dir and session_id:
-                save_trace_file(f"{session_id}_error", self.traces_dir)
+            # Save error trace
+            save_trace_file(f"{session_id}_error", self.traces_dir)
 
             print(f"\n❌ ORCHESTRATOR ERROR: {str(e)}")
             print("\n🚫 Task failed due to orchestrator error")

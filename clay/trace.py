@@ -487,8 +487,8 @@ def save_trace_file(session_id: str = None, output_dir: Path = None) -> Path:
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"clay_trace_{timestamp}"
+    # Use simple filename that overwrites previous traces
+    filename = "clay_trace"
     if session_id:
         filename += f"_{session_id}"
     filename += ".json"
