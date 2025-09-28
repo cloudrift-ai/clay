@@ -2,24 +2,10 @@
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
-from enum import Enum
-import asyncio
 
 from ..tools.base import Tool
-from ..orchestrator import Plan, Step
+from ..orchestrator import Plan
 from ..trace import trace_operation
-
-
-class AgentStatus(Enum):
-    IDLE = "idle"
-    THINKING = "thinking"
-    RUNNING_TOOL = "running_tool"
-    COMPLETE = "complete"
-    ERROR = "error"
-
-
-
-
 
 
 class Agent(ABC):
@@ -28,7 +14,6 @@ class Agent(ABC):
     def __init__(self, name: str, description: str):
         self.name = name
         self.description = description
-        self.status = AgentStatus.IDLE
         self.tools: Dict[str, Tool] = {}
 
     def register_tool(self, tool: Tool) -> None:
@@ -111,8 +96,6 @@ IMPORTANT: Return ONLY the JSON object above - no explanatory text, no comments,
     @trace_operation
     async def run(self, prompt: str) -> Plan:
         """Run the agent with a prompt to produce an initial plan."""
-        self.status = AgentStatus.THINKING
-
         try:
             # Create empty plan and let agent populate it
             empty_plan = Plan(todo=[], completed=[])
@@ -124,11 +107,9 @@ IMPORTANT: Return ONLY the JSON object above - no explanatory text, no comments,
             plan.metadata["agent_name"] = self.name
             plan.metadata["agent_prompt"] = prompt[:100] + "..." if len(prompt) > 100 else prompt
 
-            self.status = AgentStatus.COMPLETE
             return plan
 
         except Exception as e:
-            self.status = AgentStatus.ERROR
             error_plan = Plan.create_error_response(str(e))
             if not error_plan.metadata:
                 error_plan.metadata = {}
