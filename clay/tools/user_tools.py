@@ -6,7 +6,7 @@ from .base import Tool, ToolResult, ToolError
 from ..trace import trace_operation
 
 
-class MessageToolResult(ToolResult):
+class AgentMessageToolResult(ToolResult):
     """Specific result class for MessageTool."""
 
     def get_formatted_output(self) -> str:
@@ -31,7 +31,7 @@ class MessageToolResult(ToolResult):
             return f"Error: {self.error or 'Message delivery failed'}"
 
 
-class MessageTool(Tool):
+class AgentMessageTool(Tool):
     """Tool for agents to communicate messages, summaries, or explanations to users."""
 
     def __init__(self):
@@ -83,7 +83,7 @@ class MessageTool(Tool):
         }
 
     @trace_operation
-    async def execute(self, message: str, category: str = "info", **kwargs) -> MessageToolResult:
+    async def execute(self, message: str, category: str = "info", **kwargs) -> AgentMessageToolResult:
         """Display a message to the user.
 
         Args:
@@ -114,7 +114,7 @@ class MessageTool(Tool):
             else:  # info
                 formatted_message = f"💬 {message}"
 
-            return MessageToolResult(
+            return AgentMessageToolResult(
                                 output=formatted_message,
                 metadata={
                     "category": category,

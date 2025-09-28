@@ -1,13 +1,13 @@
 """Tests for the message tool."""
 
 import pytest
-from clay.tools.console_tools import MessageTool
+from clay.tools.user_tools import AgentMessageTool
 
 
 @pytest.mark.asyncio
 async def test_message_tool_basic():
     """Test basic message tool functionality."""
-    tool = MessageTool()
+    tool = AgentMessageTool()
 
     result = await tool.execute(message="Hello, this is a test message")
 
@@ -19,7 +19,7 @@ async def test_message_tool_basic():
 @pytest.mark.asyncio
 async def test_message_tool_categories():
     """Test different message categories."""
-    tool = MessageTool()
+    tool = AgentMessageTool()
 
     test_cases = [
         ("info", "💬"),
@@ -40,7 +40,7 @@ async def test_message_tool_categories():
 @pytest.mark.asyncio
 async def test_message_tool_invalid_category():
     """Test that invalid categories default to info."""
-    tool = MessageTool()
+    tool = AgentMessageTool()
 
     result = await tool.execute(message="Test message", category="invalid_category")
 
@@ -51,7 +51,7 @@ async def test_message_tool_invalid_category():
 @pytest.mark.asyncio
 async def test_message_tool_schema():
     """Test that the tool schema is correct."""
-    tool = MessageTool()
+    tool = AgentMessageTool()
     schema = tool.get_schema()
 
     assert schema["type"] == "object"
@@ -63,7 +63,7 @@ async def test_message_tool_schema():
 
 def test_message_tool_attributes():
     """Test tool attributes."""
-    tool = MessageTool()
+    tool = AgentMessageTool()
 
     assert tool.name == "message"
     assert "communicate" in tool.description.lower()
