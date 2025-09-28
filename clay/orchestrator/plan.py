@@ -11,14 +11,9 @@ class Step:
     tool_name: str
     parameters: Dict[str, Any]
     description: Optional[str] = None
-    depends_on: Optional[List[int]] = None  # Indices of steps this depends on
     result: Optional[Dict[str, Any]] = None
     status: Optional[str] = None  # "SUCCESS", "FAILURE", or None (not executed)
     error_message: Optional[str] = None
-
-    def __post_init__(self):
-        if self.depends_on is None:
-            self.depends_on = []
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert PlanStep to dictionary."""
@@ -26,7 +21,6 @@ class Step:
             "tool_name": self.tool_name,
             "parameters": self.parameters,
             "description": self.description,
-            "depends_on": self.depends_on,
             "result": self.result,
             "status": self.status,
             "error_message": self.error_message
@@ -39,7 +33,6 @@ class Step:
             tool_name=data.get("tool_name", ""),
             parameters=data.get("parameters", {}),
             description=data.get("description"),
-            depends_on=data.get("depends_on", []),
             result=data.get("result"),
             status=data.get("status"),
             error_message=data.get("error_message") or data.get("error")  # Backward compatibility
