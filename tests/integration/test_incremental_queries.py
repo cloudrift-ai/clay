@@ -63,7 +63,8 @@ async def test_error_correction():
                 parameters={"command": "touch /root/protected_file.txt"},
                 description="Create a file in protected directory",
                 result=None,
-                error="touch: cannot touch '/root/protected_file.txt': Permission denied"
+                error_message="touch: cannot touch '/root/protected_file.txt': Permission denied",
+                status="FAILURE"
             )
         ]
     )
@@ -114,7 +115,8 @@ async def test_multi_step_plan_adjustment():
                     "output": "total 8\ndrwxr-xr-x  3 user user 4096 Jan 1 12:00 .\ndrwxr-xr-x  5 user user 4096 Jan 1 12:00 ..\ndrwxr-xr-x  2 user user 4096 Jan 1 12:00 test_project",
                     "metadata": {"tool_name": "bash"}
                 },
-                error=None
+                error_message=None,
+                status="SUCCESS"
             )
         ]
     )
@@ -154,7 +156,8 @@ async def test_llm_agent_handles_plan_state():
                     "output": "Previous calculation: 2+2=4",
                     "metadata": {"tool_name": "bash"}
                 },
-                error=None
+                error_message=None,
+                status="SUCCESS"
             )
         ]
     )
@@ -194,7 +197,8 @@ async def test_plan_completion_detection():
                     "output": "File created successfully",
                     "metadata": {"tool_name": "bash"}
                 },
-                error=None
+                error_message=None,
+                status="SUCCESS"
             ),
             Step(
                 tool_name="bash",
@@ -205,7 +209,8 @@ async def test_plan_completion_detection():
                     "output": "Task completed successfully",
                     "metadata": {"tool_name": "bash"}
                 },
-                error=None
+                error_message=None,
+                status="SUCCESS"
             )
         ]
     )
@@ -250,14 +255,16 @@ async def test_partial_failure_recovery():
                     "output": "Directory created",
                     "metadata": {"tool_name": "bash"}
                 },
-                error=None
+                error_message=None,
+                status="SUCCESS"
             ),
             Step(
                 tool_name="bash",
                 parameters={"command": "cp important_file.txt backup_dir/"},
                 description="Copy important file",
                 result=None,
-                error="cp: cannot stat 'important_file.txt': No such file or directory"
+                error_message="cp: cannot stat 'important_file.txt': No such file or directory",
+                status="FAILURE"
             )
         ]
     )

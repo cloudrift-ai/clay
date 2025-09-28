@@ -7,7 +7,6 @@ import asyncio
 from pathlib import Path
 
 from clay.tools.file_tools import ReadTool, WriteTool, UpdateTool, FileToolResult
-from clay.tools.base import ToolStatus
 
 
 class TestReadTool:
@@ -25,7 +24,6 @@ class TestReadTool:
         read_tool = ReadTool()
         result = await read_tool.execute(file_path=str(test_file))
 
-        assert result.status == ToolStatus.SUCCESS
         assert result.lines_affected == 3
         assert result.operation == "read"
         assert "Line 1" in result.output
@@ -40,11 +38,10 @@ class TestReadTool:
     async def test_read_nonexistent_file(self):
         """Test reading a non-existent file."""
         read_tool = ReadTool()
-        result = await read_tool.execute(file_path="/nonexistent/file.txt")
+        from clay.tools.base import ToolError
 
-        assert result.status == ToolStatus.ERROR
-        assert "File not found" in result.error
-        assert result.operation == "read"
+        with pytest.raises(ToolError, match="File not found: /nonexistent/file.txt"):
+            await read_tool.execute(file_path="/nonexistent/file.txt")
 
     @pytest.mark.asyncio
     async def test_read_file_with_line_range(self, tmp_path):
@@ -62,7 +59,6 @@ class TestReadTool:
             end_line=5
         )
 
-        assert result.status == ToolStatus.SUCCESS
         assert result.lines_affected == 3  # Lines 3, 4, and 5 (end_line is inclusive)
         assert "Line 3" in result.output
         assert "Line 4" in result.output
@@ -83,7 +79,6 @@ class TestReadTool:
             encoding='utf-8'
         )
 
-        assert result.status == ToolStatus.SUCCESS
         assert "Hello World!" in result.output
         assert "你好世界!" in result.output
 
@@ -103,7 +98,6 @@ class TestWriteTool:
             content=test_content
         )
 
-        assert result.status == ToolStatus.SUCCESS
         assert result.lines_affected == 2
         assert result.operation == "write"
         assert test_file.exists()
@@ -122,7 +116,6 @@ class TestWriteTool:
             content=new_content
         )
 
-        assert result.status == ToolStatus.SUCCESS
         assert result.lines_affected == 2
         assert test_file.read_text() == new_content
 
@@ -139,7 +132,6 @@ class TestWriteTool:
             create_dirs=True
         )
 
-        assert result.status == ToolStatus.SUCCESS
         assert test_file.exists()
         assert test_file.parent.exists()
         assert test_file.read_text() == test_content
@@ -184,7 +176,6 @@ def goodbye():
             new_content='    print("Hello, World!")'
         )
 
-        assert result.status == ToolStatus.SUCCESS
         assert result.lines_affected == 1
         updated_content = test_file.read_text()
         assert 'print("Hello, World!")' in updated_content
@@ -208,7 +199,6 @@ z = 10
             replace_all=True
         )
 
-        assert result.status == ToolStatus.SUCCESS
         assert result.lines_affected == 3
         updated_content = test_file.read_text()
         assert updated_content == """x = 20
@@ -220,14 +210,14 @@ z = 20
     async def test_update_nonexistent_file(self):
         """Test updating a non-existent file."""
         update_tool = UpdateTool()
-        result = await update_tool.execute(
-            file_path="/nonexistent/file.txt",
-            old_content="old",
-            new_content="new"
-        )
+        from clay.tools.base import ToolError
 
-        assert result.status == ToolStatus.ERROR
-        assert "File not found" in result.error
+        with pytest.raises(ToolError, match="File not found"):
+            await update_tool.execute(
+                file_path="/nonexistent/file.txt",
+                old_content="old",
+                new_content="new"
+            )
 
     @pytest.mark.asyncio
     async def test_update_content_not_found(self, tmp_path):
@@ -236,14 +226,14 @@ z = 20
         test_file.write_text("Some content here")
 
         update_tool = UpdateTool()
-        result = await update_tool.execute(
-            file_path=str(test_file),
-            old_content="not present",
-            new_content="replacement"
-        )
+        from clay.tools.base import ToolError
 
-        assert result.status == ToolStatus.ERROR
-        assert "Old content not found" in result.error
+        with pytest.raises(ToolError, match="Old content not found"):
+            await update_tool.execute(
+                file_path=str(test_file),
+                old_content="not present",
+                new_content="replacement"
+            )
 
     @pytest.mark.asyncio
     async def test_update_diff_output(self, tmp_path):
@@ -264,7 +254,6 @@ def subtract(a, b):
             new_content='def subtract(a, b):\n    """Subtract b from a."""\n    return a - b'
         )
 
-        assert result.status == ToolStatus.SUCCESS
         assert "⏺ Update" in result.output
         assert "additions" in result.output
         # Check that the diff shows the added docstring
@@ -285,7 +274,6 @@ def subtract(a, b):
             new_content="    x = 2"
         )
 
-        assert result.status == ToolStatus.SUCCESS
         updated_content = test_file.read_text()
         assert "    x = 2" in updated_content
         # Ensure whitespace is preserved
@@ -298,14 +286,12 @@ class TestFileToolResult:
     def test_file_tool_result_success(self):
         """Test FileToolResult for successful operations."""
         result = FileToolResult(
-            status=ToolStatus.SUCCESS,
             output="Operation successful",
             file_path="/path/to/file.txt",
             lines_affected=5,
             operation="read"
         )
 
-        assert result.status == ToolStatus.SUCCESS
         assert result.file_path == "/path/to/file.txt"
         assert result.lines_affected == 5
         assert result.operation == "read"
@@ -317,28 +303,28 @@ class TestFileToolResult:
         assert "/path/to/file.txt" in summary
         assert "5" in summary
 
-    def test_file_tool_result_error(self):
-        """Test FileToolResult for error cases."""
+    def test_file_tool_result_success(self):
+        """Test FileToolResult for successful operations."""
         result = FileToolResult(
-            status=ToolStatus.ERROR,
-            error="Something went wrong",
+            output="File content output",
             file_path="/path/to/file.txt",
-            operation="write"
+            operation="write",
+            lines_affected=5
         )
 
-        assert result.status == ToolStatus.ERROR
-        assert result.error == "Something went wrong"
+        assert result.output == "File content output"
+        assert result.file_path == "/path/to/file.txt"
+        assert result.operation == "write"
+        assert result.lines_affected == 5
 
         # Test console summary
         summary = result.console_summary()
-        assert "❌" in summary
-        assert "File operation failed" in summary
-        assert "Something went wrong" in summary
+        assert "✅" in summary
+        assert "Created /path/to/file.txt (5 lines)" in summary
 
     def test_file_tool_result_to_dict(self):
         """Test FileToolResult serialization to dict."""
         result = FileToolResult(
-            status=ToolStatus.SUCCESS,
             output="Test output",
             file_path="/test/file.txt",
             lines_affected=10,
@@ -347,7 +333,6 @@ class TestFileToolResult:
         )
 
         result_dict = result.to_dict()
-        assert result_dict["status"] == "success"
         assert result_dict["output"] == "Test output"
         assert result_dict["file_path"] == "/test/file.txt"
         assert result_dict["lines_affected"] == 10
@@ -369,12 +354,10 @@ class TestToolIntegration:
             file_path=str(test_file),
             content="def hello():\n    return 'Hello'\n"
         )
-        assert write_result.status == ToolStatus.SUCCESS
 
         # Step 2: Read the file
         read_tool = ReadTool()
         read_result = await read_tool.execute(file_path=str(test_file))
-        assert read_result.status == ToolStatus.SUCCESS
         assert "def hello():" in read_result.output
 
         # Step 3: Update the file
@@ -384,11 +367,9 @@ class TestToolIntegration:
             old_content="    return 'Hello'",
             new_content="    return 'Hello, World!'"
         )
-        assert update_result.status == ToolStatus.SUCCESS
 
         # Step 4: Read again to verify update
         verify_result = await read_tool.execute(file_path=str(test_file))
-        assert verify_result.status == ToolStatus.SUCCESS
         assert "Hello, World!" in verify_result.output
 
     @pytest.mark.asyncio
@@ -403,12 +384,10 @@ class TestToolIntegration:
             file_path=str(test_file),
             content=unicode_content
         )
-        assert write_result.status == ToolStatus.SUCCESS
 
         # Read Unicode content
         read_tool = ReadTool()
         read_result = await read_tool.execute(file_path=str(test_file))
-        assert read_result.status == ToolStatus.SUCCESS
         assert "世界" in read_result.output
         assert "🌍" in read_result.output
         assert "Привет" in read_result.output
@@ -420,7 +399,6 @@ class TestToolIntegration:
             old_content="世界",
             new_content="ワールド"
         )
-        assert update_result.status == ToolStatus.SUCCESS
 
         # Verify update
         final_content = test_file.read_text()

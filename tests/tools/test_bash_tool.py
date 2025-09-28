@@ -4,7 +4,6 @@ import pytest
 import json
 from pathlib import Path
 from clay.tools.bash_tool import BashTool, BashToolResult
-from clay.tools.base import ToolStatus
 
 
 class TestBashToolResult:
@@ -13,7 +12,6 @@ class TestBashToolResult:
     def test_bash_tool_result_creation(self):
         """Test creating a BashToolResult."""
         result = BashToolResult(
-            status=ToolStatus.SUCCESS,
             command="echo hello",
             return_code=0,
             stdout="hello\n",
@@ -22,7 +20,6 @@ class TestBashToolResult:
             output="hello\n"
         )
 
-        assert result.status == ToolStatus.SUCCESS
         assert result.command == "echo hello"
         assert result.return_code == 0
         assert result.stdout == "hello\n"
@@ -33,7 +30,6 @@ class TestBashToolResult:
     def test_to_dict(self):
         """Test converting BashToolResult to dictionary."""
         result = BashToolResult(
-            status=ToolStatus.SUCCESS,
             command="ls",
             return_code=0,
             stdout="file1\nfile2\n",
@@ -44,7 +40,6 @@ class TestBashToolResult:
 
         result_dict = result.to_dict()
 
-        assert result_dict["status"] == "success"
         assert result_dict["command"] == "ls"
         assert result_dict["return_code"] == 0
         assert result_dict["stdout"] == "file1\nfile2\n"
@@ -55,7 +50,6 @@ class TestBashToolResult:
     def test_serialize(self):
         """Test full serialization."""
         result = BashToolResult(
-            status=ToolStatus.SUCCESS,
             command="echo test",
             return_code=0,
             stdout="test\n",
@@ -66,7 +60,6 @@ class TestBashToolResult:
         serialized = result.serialize()
         parsed = json.loads(serialized)
 
-        assert parsed["status"] == "success"
         assert parsed["command"] == "echo test"
         assert parsed["return_code"] == 0
         assert parsed["stdout"] == "test\n"
@@ -75,7 +68,6 @@ class TestBashToolResult:
     def test_get_summary_ls_command(self):
         """Test get_summary for ls command."""
         result = BashToolResult(
-            status=ToolStatus.SUCCESS,
             command="ls -la",
             return_code=0,
             stdout="file1\nfile2\nfile3\n",
@@ -88,7 +80,6 @@ class TestBashToolResult:
     def test_get_summary_cat_command(self):
         """Test get_summary for cat command."""
         result = BashToolResult(
-            status=ToolStatus.SUCCESS,
             command="cat file.txt",
             return_code=0,
             stdout="line1\nline2\n",
@@ -101,7 +92,6 @@ class TestBashToolResult:
     def test_get_summary_grep_command(self):
         """Test get_summary for grep command."""
         result = BashToolResult(
-            status=ToolStatus.SUCCESS,
             command="grep pattern file.txt",
             return_code=0,
             stdout="match1\nmatch2\n",
@@ -114,7 +104,6 @@ class TestBashToolResult:
     def test_get_summary_git_diff_command(self):
         """Test get_summary for git diff command."""
         result = BashToolResult(
-            status=ToolStatus.SUCCESS,
             command="git diff",
             return_code=0,
             stdout="--- a/file.txt\n+++ b/file.txt\n-old line\n+new line\n+another line\n",
@@ -127,7 +116,6 @@ class TestBashToolResult:
     def test_get_summary_git_status_command(self):
         """Test get_summary for git status command."""
         result = BashToolResult(
-            status=ToolStatus.SUCCESS,
             command="git status",
             return_code=0,
             stdout="modified: file1.py\nmodified: file2.py\nnew file: file3.py\n",
@@ -140,7 +128,6 @@ class TestBashToolResult:
     def test_get_summary_generic_command(self):
         """Test get_summary for generic command."""
         result = BashToolResult(
-            status=ToolStatus.SUCCESS,
             command="custom command",
             return_code=0,
             stdout="output line 1\noutput line 2\n",
@@ -153,7 +140,6 @@ class TestBashToolResult:
     def test_get_summary_no_output(self):
         """Test get_summary for command with no output."""
         result = BashToolResult(
-            status=ToolStatus.SUCCESS,
             command="touch file.txt",
             return_code=0,
             stdout="",
@@ -163,18 +149,17 @@ class TestBashToolResult:
         summary = result.get_summary()
         assert summary == "Command completed successfully"
 
-    def test_get_summary_error(self):
-        """Test get_summary for failed command."""
+    def test_get_summary_no_output(self):
+        """Test get_summary for command with no output."""
         result = BashToolResult(
-            status=ToolStatus.ERROR,
-            command="nonexistent-command",
-            return_code=127,
+            command="true",  # Command that succeeds with no output
+            return_code=0,
             stdout="",
-            stderr="command not found"
+            stderr=""
         )
 
         summary = result.get_summary()
-        assert summary == "Command failed with return code 127"
+        assert summary == "Command completed successfully"
 
 
 class TestBashTool:
@@ -213,7 +198,6 @@ class TestBashTool:
         result = await tool.execute("echo 'Hello World'")
 
         assert isinstance(result, BashToolResult)
-        assert result.status == ToolStatus.SUCCESS
         assert result.command == "echo 'Hello World'"
         assert result.return_code == 0
         assert "Hello World" in result.stdout
@@ -226,7 +210,6 @@ class TestBashTool:
         result = await tool.execute("ls")
 
         assert isinstance(result, BashToolResult)
-        assert result.status == ToolStatus.SUCCESS
         assert result.command == "ls"
         assert result.return_code == 0
         assert result.stdout is not None
@@ -235,13 +218,10 @@ class TestBashTool:
     async def test_execute_failing_command(self):
         """Test executing a command that fails."""
         tool = BashTool()
-        result = await tool.execute("nonexistent-command-12345")
+        from clay.tools.base import ToolError
 
-        assert isinstance(result, BashToolResult)
-        assert result.status == ToolStatus.ERROR
-        assert result.command == "nonexistent-command-12345"
-        assert result.return_code != 0
-        assert result.stderr is not None
+        with pytest.raises(ToolError, match="nonexistent-command-12345"):
+            await tool.execute("nonexistent-command-12345")
 
     @pytest.mark.asyncio
     async def test_execute_with_working_dir(self):
@@ -251,7 +231,6 @@ class TestBashTool:
         result = await tool.execute("pwd", working_dir="/tmp")
 
         assert isinstance(result, BashToolResult)
-        assert result.status == ToolStatus.SUCCESS
         assert result.working_dir == "/tmp"
         assert "/tmp" in result.stdout
 
@@ -263,20 +242,17 @@ class TestBashTool:
         result = await tool.execute("echo 'quick'", timeout=1)
 
         assert isinstance(result, BashToolResult)
-        assert result.status == ToolStatus.SUCCESS
         assert result.command == "echo 'quick'"
 
     @pytest.mark.asyncio
     async def test_execute_timeout_error(self):
         """Test command that times out."""
         tool = BashTool()
-        # Sleep for longer than timeout
-        result = await tool.execute("sleep 2", timeout=1)
+        from clay.tools.base import ToolError
 
-        assert isinstance(result, BashToolResult)
-        assert result.status == ToolStatus.ERROR
-        assert "timed out" in result.error
-        assert result.command == "sleep 2"
+        # Sleep for longer than timeout - should raise ToolError
+        with pytest.raises(ToolError, match="Command timed out after 1 seconds"):
+            await tool.execute("sleep 2", timeout=1)
 
     @pytest.mark.asyncio
     async def test_validate_parameters(self):
@@ -284,13 +260,12 @@ class TestBashTool:
         tool = BashTool()
 
         # Test missing required parameter
-        result = await tool.run()  # No command provided
-        assert result.status == ToolStatus.ERROR
-        assert "Missing required parameter: command" in result.error
+        from clay.tools.base import ToolError
+        with pytest.raises(ToolError, match="Missing required parameter: command"):
+            await tool.run()  # No command provided
 
         # Test valid parameters
         result = await tool.run(command="echo test")
-        assert result.status == ToolStatus.SUCCESS
 
     @pytest.mark.asyncio
     async def test_stderr_handling(self):
@@ -300,6 +275,5 @@ class TestBashTool:
         result = await tool.execute("echo 'error message' >&2; echo 'success'")
 
         assert isinstance(result, BashToolResult)
-        assert result.status == ToolStatus.SUCCESS
         assert "success" in result.stdout
         assert "error message" in result.stderr

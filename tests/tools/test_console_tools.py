@@ -2,7 +2,6 @@
 
 import pytest
 from clay.tools.console_tools import MessageTool
-from clay.tools.base import ToolStatus
 
 
 @pytest.mark.asyncio
@@ -12,7 +11,6 @@ async def test_message_tool_basic():
 
     result = await tool.execute(message="Hello, this is a test message")
 
-    assert result.status == ToolStatus.SUCCESS
     assert "💬 Hello, this is a test message" in result.output
     assert result.metadata["category"] == "info"
     assert result.metadata["raw_message"] == "Hello, this is a test message"
@@ -35,7 +33,6 @@ async def test_message_tool_categories():
     for category, expected_prefix in test_cases:
         result = await tool.execute(message="Test message", category=category)
 
-        assert result.status == ToolStatus.SUCCESS
         assert expected_prefix in result.output
         assert result.metadata["category"] == category
 
@@ -47,7 +44,6 @@ async def test_message_tool_invalid_category():
 
     result = await tool.execute(message="Test message", category="invalid_category")
 
-    assert result.status == ToolStatus.SUCCESS
     assert "💬 Test message" in result.output
     assert result.metadata["category"] == "info"
 

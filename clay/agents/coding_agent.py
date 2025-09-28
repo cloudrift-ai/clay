@@ -94,6 +94,15 @@ GENERAL RULES:
 - DO NOT remove planned steps just because some other steps completed
 - Preserve the original step sequence and don't skip planned file creation steps
 
+COMPLETION CRITERIA:
+- Return EMPTY todo list if ALL of the following are true:
+  1. No steps have "status": "FAILURE"
+  2. Core functionality is implemented (main files created)
+  3. Tests pass (if tests were part of the plan)
+  4. Basic requirements are met
+- DO NOT add cosmetic improvements, optional features, or code quality checks unless explicitly requested
+- Focus on FUNCTIONAL completion, not perfection
+
 Provide the updated todo list based on completed vs remaining work."""
 
         messages = [

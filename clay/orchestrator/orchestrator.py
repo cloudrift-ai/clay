@@ -284,7 +284,9 @@ Selection criteria are automatically derived from each agent's description and c
                 self._print_todo_list_at_bottom(plan)
 
                 # Have agent review the plan and update todo list if needed
-                if plan.todo:  # Only review if there are more steps
+                # Review if there are remaining todos OR if there are any failures to address
+                should_review = bool(plan.todo) or plan.has_failed
+                if should_review:
                     plan = await selected_agent.review_plan(plan, goal)
 
                 # Save plan after each iteration
