@@ -60,31 +60,18 @@ class BashToolResult(ToolResult):
         else:
             return f"Command failed with return code {self.return_code}"
 
-    def console_summary(self) -> str:
-        """Get a console-friendly summary of the bash command execution."""
+    def get_formatted_output(self) -> str:
+        """Get formatted output for Claude Code style display."""
         if self.status == ToolStatus.SUCCESS:
-            summary = self.get_summary()
-
-            # For certain commands, show more output
-            if self.command and any(self.command.startswith(cmd) for cmd in ['ls', 'git status', 'find']):
-                if self.stdout and len(self.stdout.splitlines()) <= 10 and len(self.stdout) <= 500:
-                    return f"✅ {summary}:\n{self.stdout.rstrip()}"
-                else:
-                    return f"✅ {summary}"
-
-            # For small outputs, show everything
-            if self.stdout and len(self.stdout.splitlines()) <= 3 and len(self.stdout) <= 200:
-                return f"✅ {summary}:\n{self.stdout.rstrip()}"
-
-            # For larger outputs, just show the summary
-            return f"✅ {summary}"
+            if self.stdout:
+                return self.stdout.rstrip()
+            else:
+                return "Success (no output)"
         else:
-            error_info = f"Command: {self.command}"
             if self.stderr:
-                error_info += f"\nError: {self.stderr.rstrip()}"
-            if self.return_code is not None:
-                error_info += f"\nReturn code: {self.return_code}"
-            return f"❌ Bash command failed:\n{error_info}"
+                return f"Error: {self.stderr.rstrip()}"
+            else:
+                return f"Error: Command failed with return code {self.return_code}"
 
 
 class BashTool(Tool):
@@ -152,6 +139,13 @@ class BashTool(Tool):
             }
         ]
         return json.dumps(examples, indent=2)
+
+    def get_tool_call_display(self, parameters: Dict[str, Any]) -> str:
+        """Get formatted display for bash tool invocation."""
+        command = parameters.get('command', '')
+        if len(command) > 80:
+            command = command[:77] + "..."
+        return f"⏺ Bash({command})"
 
     def get_schema(self) -> Dict[str, Any]:
         return {

@@ -8,12 +8,26 @@ from ..trace import trace_operation
 class MessageToolResult(ToolResult):
     """Specific result class for MessageTool."""
 
-    def console_summary(self) -> str:
-        """Get a console-friendly summary of the message."""
+    def get_formatted_output(self) -> str:
+        """Get formatted output for Claude Code style display."""
         if self.status == ToolStatus.SUCCESS and self.output:
-            return self.output  # Messages are already formatted nicely
+            # Remove the emoji prefix for cleaner display
+            output = self.output
+            if output.startswith("💬 "):
+                output = output[2:]
+            elif output.startswith("📋 Summary: "):
+                output = output[11:]
+            elif output.startswith("💡 Explanation: "):
+                output = output[15:]
+            elif output.startswith("ℹ️ Status: "):
+                output = output[10:]
+            elif output.startswith("⚠️ Warning: "):
+                output = f"Warning: {output[11:]}"
+            elif output.startswith("❌ Error: "):
+                output = f"Error: {output[9:]}"
+            return output
         else:
-            return super().console_summary()
+            return f"Error: {self.error or 'Message delivery failed'}"
 
 
 class MessageTool(Tool):
@@ -40,6 +54,13 @@ class MessageTool(Tool):
                 "Summarizing the overall progress"
             ]
         )
+
+    def get_tool_call_display(self, parameters: Dict[str, Any]) -> str:
+        """Get formatted display for message tool invocation."""
+        message = parameters.get('message', '')
+        if len(message) > 60:
+            message = message[:57] + "..."
+        return f"⏺ Message({message})"
 
     def get_schema(self) -> Dict[str, Any]:
         """Get the tool schema."""

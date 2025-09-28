@@ -168,6 +168,20 @@ class Tool(ABC):
             if field not in params:
                 raise ToolError(f"Missing required parameter: {field}")
 
+    def get_tool_call_display(self, parameters: Dict[str, Any]) -> str:
+        """Get a formatted display string for tool invocation.
+
+        This should be overridden by specific tools to provide custom formatting.
+
+        Args:
+            parameters: The parameters being passed to the tool
+
+        Returns:
+            A formatted string like "⏺ ToolName(params...)"
+        """
+        # Default implementation - just show tool name
+        return f"⏺ {self.name.title()}(...)"
+
     @trace_operation
     async def run(self, **kwargs) -> ToolResult:
         """Run the tool with validation."""

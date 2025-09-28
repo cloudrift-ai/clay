@@ -124,16 +124,44 @@ Selection criteria are automatically derived from each agent's description and c
             sys.stdout.flush()
             self._todo_lines_count = 0
 
-    def _print_tool_execution(self, tool_name: str, parameters: Dict[str, Any], result) -> None:
-        """Print console-friendly summary of tool execution."""
+    def _print_tool_execution(self, tool: Any, tool_name: str, parameters: Dict[str, Any], result) -> None:
+        """Print console-friendly summary of tool execution in Claude Code format."""
         # Clear any existing todo list first
         self._clear_todo_lines()
 
-        print(f"🔧 Executing {tool_name} tool...")
+        # Get the tool's formatted display
+        tool_call = tool.get_tool_call_display(parameters)
+        print(tool_call)
 
-        # Print the tool result summary
-        summary = result.console_summary()
-        print(summary)
+        # Print the result summary with proper formatting
+        if hasattr(result, 'get_formatted_output'):
+            output = result.get_formatted_output()
+        else:
+            # Default formatting for results without custom formatter
+            if result.status == ToolStatus.SUCCESS:
+                output = result.output or "Success"
+            else:
+                output = f"Error: {result.error or 'Unknown error'}"
+
+        # Format and truncate output
+        if output:
+            lines = output.splitlines()
+            if len(lines) > 10:
+                # Show first 9 lines and indicate more
+                formatted_lines = lines[:9]
+                remaining = len(lines) - 9
+                formatted_lines.append(f"… +{remaining} lines (ctrl+o to see all)")
+                output = '\n'.join(formatted_lines)
+
+            # Indent output lines
+            indented_output = '\n'.join(f"  {line}" if i == 0 else f"     {line}"
+                                       for i, line in enumerate(output.splitlines()))
+
+            # Add the ⎿ character for the first line
+            if indented_output:
+                indented_output = "  ⎿" + indented_output[2:]
+
+            print(indented_output)
 
     def _print_todo_list_at_bottom(self, plan: Plan) -> None:
         """Print compact todo list that stays at the bottom."""
@@ -251,7 +279,7 @@ Selection criteria are automatically derived from each agent's description and c
                     result = await tool.run(**parameters)
 
                     # Print console summary of the tool execution
-                    self._print_tool_execution(tool_name, parameters, result)
+                    self._print_tool_execution(tool, tool_name, parameters, result)
 
                     # Move step to completed with result
                     if result.status == ToolStatus.SUCCESS:

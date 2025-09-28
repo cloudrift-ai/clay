@@ -26,20 +26,38 @@ class FileToolResult(ToolResult):
         })
         return base_dict
 
-    def console_summary(self) -> str:
-        """Get a console-friendly summary of the file operation."""
+    def get_formatted_output(self) -> str:
+        """Get formatted output for Claude Code style display."""
         if self.status == ToolStatus.SUCCESS:
             if self.operation == "read":
-                return f"✅ Read {self.file_path} ({self.lines_affected} lines)"
+                # For read operations, show the content (it's already formatted with line numbers)
+                return self.output or f"Read {self.lines_affected} lines from {self.file_path}"
             elif self.operation == "write":
-                return f"✅ Created {self.file_path} ({self.lines_affected} lines)"
+                # For write operations, show the actual content
+                if self.output:
+                    # Format the content with line numbers for display
+                    lines = self.output.splitlines()
+                    formatted_lines = []
+                    for i, line in enumerate(lines, 1):
+                        formatted_lines.append(f"{i:4d}→ {line}")
+                    return '\n'.join(formatted_lines)
+                else:
+                    return f"Created {self.file_path} with {self.lines_affected} lines"
             elif self.operation == "update":
-                return f"✅ Updated {self.file_path} ({self.lines_affected} changes)"
+                # For update operations, show the diff output
+                if self.output and "⏺ Update" not in self.output:
+                    # Return the diff output without the header
+                    return self.output
+                elif self.output:
+                    # Extract just the diff part
+                    lines = self.output.splitlines()
+                    if len(lines) > 2:
+                        return '\n'.join(lines[1:])  # Skip the ⏺ Update line
+                return f"Updated {self.file_path} with {self.lines_affected} changes"
             else:
-                return f"✅ File operation completed on {self.file_path}"
+                return self.output or "File operation completed"
         else:
-            error_msg = self.error or "Unknown error"
-            return f"❌ File operation failed: {error_msg}"
+            return f"Error: {self.error or 'File operation failed'}"
 
 
 class ReadTool(Tool):
@@ -62,6 +80,13 @@ class ReadTool(Tool):
                 "Analyze file content before modifications"
             ]
         )
+
+    def get_tool_call_display(self, parameters: Dict[str, Any]) -> str:
+        """Get formatted display for read tool invocation."""
+        file_path = parameters.get('file_path', '')
+        if len(file_path) > 60:
+            file_path = "..." + file_path[-57:]
+        return f"⏺ Read({file_path})"
 
     def get_schema(self) -> Dict[str, Any]:
         return {
@@ -178,6 +203,13 @@ class WriteTool(Tool):
             ]
         )
 
+    def get_tool_call_display(self, parameters: Dict[str, Any]) -> str:
+        """Get formatted display for write tool invocation."""
+        file_path = parameters.get('file_path', '')
+        if len(file_path) > 60:
+            file_path = "..." + file_path[-57:]
+        return f"⏺ Write({file_path})"
+
     def get_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
@@ -228,14 +260,15 @@ class WriteTool(Tool):
 
             return FileToolResult(
                 status=ToolStatus.SUCCESS,
-                output=f"Successfully wrote {lines_count} lines to {file_path}",
+                output=content,  # Store the actual content
                 file_path=file_path,
                 lines_affected=lines_count,
                 operation="write",
                 metadata={
                     "encoding": encoding,
                     "file_size": file_size,
-                    "created_dirs": create_dirs
+                    "created_dirs": create_dirs,
+                    "content": content  # Also store in metadata for reference
                 }
             )
 
@@ -268,6 +301,13 @@ class UpdateTool(Tool):
                 "Refactor code sections"
             ]
         )
+
+    def get_tool_call_display(self, parameters: Dict[str, Any]) -> str:
+        """Get formatted display for update tool invocation."""
+        file_path = parameters.get('file_path', '')
+        if len(file_path) > 60:
+            file_path = "..." + file_path[-57:]
+        return f"⏺ Update({file_path})"
 
     def get_schema(self) -> Dict[str, Any]:
         return {
@@ -314,22 +354,21 @@ class UpdateTool(Tool):
         if len(diff_lines) <= 2:  # Only header lines, no actual changes
             return "No changes detected"
 
-        # Parse the unified diff to create a more readable format
-        output_lines = []
-        output_lines.append(f"⏺ Update({file_path})")
-
         # Count additions and deletions
         additions = sum(1 for line in diff_lines if line.startswith('+') and not line.startswith('+++'))
         deletions = sum(1 for line in diff_lines if line.startswith('-') and not line.startswith('---'))
 
+        # Build summary line
         if additions > 0 and deletions > 0:
-            output_lines.append(f"  ⎿  Updated {file_path} with {additions} additions and {deletions} deletions")
+            summary = f"Updated {file_path} with {additions} additions and {deletions} deletions"
         elif additions > 0:
-            output_lines.append(f"  ⎿  Updated {file_path} with {additions} additions")
+            summary = f"Updated {file_path} with {additions} additions"
         elif deletions > 0:
-            output_lines.append(f"  ⎿  Updated {file_path} with {deletions} deletions")
+            summary = f"Updated {file_path} with {deletions} deletions"
         else:
-            output_lines.append(f"  ⎿  Updated {file_path}")
+            summary = f"Updated {file_path}"
+
+        output_lines = [summary]
 
         # Process the diff to show context with line numbers
         current_line = 0
@@ -341,7 +380,6 @@ class UpdateTool(Tool):
                 parts = line.split(' ')
                 if len(parts) >= 3:
                     old_range = parts[1][1:]  # Remove the '-'
-                    new_range = parts[2][1:]  # Remove the '+'
                     if ',' in old_range:
                         old_start = int(old_range.split(',')[0])
                     else:
@@ -355,15 +393,15 @@ class UpdateTool(Tool):
 
             if line.startswith(' '):
                 # Context line
-                output_lines.append(f"       {current_line:3d}                {line[1:]}")
+                output_lines.append(f"  {current_line:3d}                {line[1:]}")
                 current_line += 1
             elif line.startswith('-'):
                 # Deleted line
-                output_lines.append(f"       {current_line:3d} -              {line[1:]}")
+                output_lines.append(f"  {current_line:3d} -              {line[1:]}")
                 current_line += 1
             elif line.startswith('+'):
-                # Added line
-                output_lines.append(f"       {current_line:3d} +              {line[1:]}")
+                # Added line - use new line number
+                output_lines.append(f"  {current_line:3d} +              {line[1:]}")
                 # Don't increment current_line for additions
 
         return '\n'.join(output_lines)
