@@ -2,7 +2,7 @@
 
 from .base import Tool, ToolResult, ToolError
 from .bash_tool import BashTool, BashToolResult
-from .message_tool import MessageTool
+from .console_tools import MessageTool
 from .file_tools import ReadTool, WriteTool, UpdateTool, FileToolResult
 
 __all__ = [

@@ -1,7 +1,7 @@
 """Tests for the message tool."""
 
 import pytest
-from clay.tools.message_tool import MessageTool
+from clay.tools.console_tools import MessageTool
 from clay.tools.base import ToolStatus
 
 
