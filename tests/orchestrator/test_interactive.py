@@ -309,3 +309,109 @@ class TestInteractiveExecution:
         assert user_input_step.status == "FAILURE"
         assert user_input_step.error_message is not None
         assert "not found" in user_input_step.error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_long_output_command_with_output_replacement(self):
+        """Test that long-running commands show full output during execution, then replace with summary."""
+        # Create a plan with a command that produces long output
+        steps = [
+            Step(
+                tool_name="bash",
+                parameters={
+                    "command": "python -c \"import time; [print(f'Line {i}: This is a test line with some content to make it longer') or time.sleep(0.01) for i in range(1, 21)]\""
+                },
+                description="Generate long output with multiple lines"
+            ),
+            Step(
+                tool_name="bash",
+                parameters={
+                    "command": "echo 'Final command completed'"
+                },
+                description="Simple final command"
+            )
+        ]
+
+        plan = Plan(todo=steps)
+
+        # Create orchestrator with LLM disabled
+        orchestrator = ClayOrchestrator(disable_llm=True)
+
+        # Capture all stdout to analyze output behavior
+        import threading
+
+        captured_outputs = []
+        output_lock = threading.Lock()
+
+        class OutputCapture:
+            def __init__(self, orig_stdout):
+                self.orig_stdout = orig_stdout
+                self.buffer = ""
+
+            def write(self, text):
+                with output_lock:
+                    self.buffer += text
+                    captured_outputs.append(text)
+                # Also write to original stdout so we can see what's happening
+                self.orig_stdout.write(text)
+
+            def flush(self):
+                self.orig_stdout.flush()
+
+        original_stdout = sys.stdout
+        output_capture = OutputCapture(original_stdout)
+
+        try:
+            sys.stdout = output_capture
+
+            # Execute the plan
+            result_plan = await orchestrator.process_task(plan=plan)
+
+            # Verify plan executed successfully
+            assert result_plan.is_complete
+            assert not result_plan.has_failed
+
+            # Check that both bash steps were completed
+            bash_steps = [step for step in result_plan.completed if step.tool_name == "bash"]
+            assert len(bash_steps) >= 2
+
+            # Verify the first bash step (long output) was executed
+            first_bash_step = bash_steps[0]
+            assert first_bash_step.status == "SUCCESS"
+            assert first_bash_step.result is not None
+
+        finally:
+            sys.stdout = original_stdout
+
+        # Analyze the captured output (after restoring stdout)
+        full_output = output_capture.buffer
+
+        # Should contain the command output during execution
+        assert "Line 1: This is a test line" in full_output
+        assert "Line 2: This is a test line" in full_output
+        assert "Line 9: This is a test line" in full_output
+
+        # Should contain the tool execution summary format
+        assert "⏺ Bash(" in full_output
+
+        # Should contain plan progress indicators
+        assert "PLANNED TASKS" in full_output or "remaining" in full_output
+
+        # Should show completion status
+        assert "SUCCESS" in full_output or "completed" in full_output
+
+        # Should show output truncation (the orchestrator's summarization behavior)
+        assert "… +" in full_output and "lines" in full_output, "Should show output truncation indicator"
+
+        # Verify that we see the detailed output lines in the captured output
+        lines = full_output.split('\n')
+
+        # Count how many "Line X:" entries we can see
+        line_entries = [line for line in lines if "Line " in line and ": This is a test line" in line]
+        assert len(line_entries) >= 5, f"Should show multiple lines of output, got {len(line_entries)}"
+
+        # Verify the final command also executed
+        assert "Final command completed" in full_output
+
+        # Verify both commands show in the tool execution format
+        bash_tool_calls = [line for line in lines if "⏺ Bash(" in line]
+        assert len(bash_tool_calls) >= 2, "Should show both bash commands in summary format"
