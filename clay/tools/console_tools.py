@@ -1,6 +1,7 @@
 """Console tools for agent communication and user interaction."""
 
 from typing import Dict, Any, Optional
+from datetime import datetime
 from .base import Tool, ToolResult, ToolError
 from ..trace import trace_operation
 
@@ -126,115 +127,80 @@ class MessageTool(Tool):
             raise ToolError(f"Failed to send message: {str(e)}")
 
 
-class UserInputToolResult(ToolResult):
-    """Specific result class for UserInputTool."""
+class UserMessageToolResult(ToolResult):
+    """Specific result class for UserMessageTool."""
 
     def get_formatted_output(self) -> str:
         """Get formatted output for Claude Code style display."""
         if self.output:
-            return f"User response: {self.output}"
+            return f"User message: {self.output}"
         else:
-            return f"Error: {self.error or 'Failed to get user input'}"
+            return f"Error: {self.error or 'Failed to process user message'}"
 
 
-class UserInputTool(Tool):
-    """Tool for requesting input from the user during execution."""
+class UserMessageTool(Tool):
+    """Tool for encoding the initial user prompt/message to the agent."""
 
     def __init__(self):
         super().__init__(
-            name="user_input",
-            description="Request input or clarification from the user during task execution",
+            name="user_message",
+            description="Encodes the user's initial prompt or message to the agent",
             capabilities=[
-                "Ask the user for additional information",
-                "Request clarification on requirements",
-                "Get user preferences or choices",
-                "Confirm actions with the user",
-                "Gather missing parameters"
+                "Capture the user's initial request",
+                "Store the user's instructions",
+                "Provide context for the agent's task",
+                "Record the starting point of the conversation"
             ],
             use_cases=[
-                "When task requirements are ambiguous",
-                "When user preferences are needed",
-                "When critical decisions require confirmation",
-                "When additional context is required",
-                "When choosing between multiple valid options"
+                "At the beginning of every agent task",
+                "To record what the user asked for",
+                "To provide context for subsequent operations",
+                "To maintain a record of the user's instructions"
             ]
         )
 
     def get_tool_call_display(self, parameters: Dict[str, Any]) -> str:
-        """Get formatted display for user input tool invocation."""
-        prompt = parameters.get('prompt', '')
-        if len(prompt) > 60:
-            prompt = prompt[:57] + "..."
-        return f"⏺ UserInput({prompt})"
+        """Get formatted display for user message tool invocation."""
+        message = parameters.get('message', '')
+        if len(message) > 60:
+            message = message[:57] + "..."
+        return f"⏺ UserMessage({message})"
 
     def get_schema(self) -> Dict[str, Any]:
         """Get the tool schema."""
         return {
             "type": "object",
             "properties": {
-                "prompt": {
+                "message": {
                     "type": "string",
-                    "description": "The question or prompt to display to the user"
-                },
-                "default": {
-                    "type": "string",
-                    "description": "Optional default value if user provides no input"
-                },
-                "choices": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Optional list of valid choices to present to the user"
+                    "description": "The user's prompt or message to the agent"
                 }
             },
-            "required": ["prompt"]
+            "required": ["message"]
         }
 
     @trace_operation
-    async def execute(self, prompt: str, default: Optional[str] = None, choices: Optional[list] = None, **kwargs) -> UserInputToolResult:
-        """Request input from the user.
+    async def execute(self, message: str, **kwargs) -> UserMessageToolResult:
+        """Process and store the user's message.
 
         Args:
-            prompt: The question or prompt to display
-            default: Optional default value
-            choices: Optional list of valid choices
+            message: The user's prompt or instructions
             **kwargs: Additional parameters (ignored)
 
         Returns:
-            UserInputToolResult with the user's response
+            UserMessageToolResult with the processed message
         """
         try:
-            # Format the prompt for display
-            formatted_prompt = f"\n❓ {prompt}"
-
-            if choices:
-                formatted_prompt += f"\n   Options: {', '.join(choices)}"
-
-            if default:
-                formatted_prompt += f"\n   (default: {default})"
-
-            formatted_prompt += "\n   > "
-
-            # Get user input (synchronously, as input() blocks)
-            user_response = input(formatted_prompt)
-
-            # Use default if no input provided
-            if not user_response and default:
-                user_response = default
-
-            # Validate against choices if provided
-            if choices and user_response not in choices:
-                raise ToolError(f"Invalid choice. Please select from: {', '.join(choices)}")
-
-            return UserInputToolResult(
-                output=user_response,
+            # Simply encode and return the user's message
+            # This tool doesn't ask for input, it just records what was provided
+            return UserMessageToolResult(
+                output=message,
                 metadata={
-                    "prompt": prompt,
-                    "response": user_response,
-                    "tool_type": "interaction"
+                    "message": message,
+                    "tool_type": "user_context",
+                    "timestamp": datetime.now().isoformat()
                 }
             )
 
-        except KeyboardInterrupt:
-            raise ToolError("User cancelled input")
         except Exception as e:
-            raise ToolError(f"Failed to get user input: {str(e)}")
+            raise ToolError(f"Failed to process user message: {str(e)}")

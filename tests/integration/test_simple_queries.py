@@ -29,7 +29,8 @@ async def test_basic_math():
         message_steps = [step for step in plan.completed if step.tool_name == "message"]
         assert len(message_steps) > 0, "Plan should use message tool for responses"
         # Check that only message tools were used (no bash/file operations)
-        non_message_steps = [step for step in plan.steps if step.tool_name != "message"]
+        # Exclude user_message which is added automatically to record the user's request
+        non_message_steps = [step for step in plan.steps if step.tool_name not in ["message", "user_message"]]
         assert len(non_message_steps) == 0, "Math queries should only use message tool"
         # Plan should have completed successfully (check for message steps)
 
@@ -62,7 +63,8 @@ async def test_simple_facts():
         message_steps = [step for step in plan.completed if step.tool_name == "message"]
         assert len(message_steps) > 0, "Plan should use message tool for responses"
         # Check that only message tools were used (no bash/file operations)
-        non_message_steps = [step for step in plan.steps if step.tool_name != "message"]
+        # Exclude user_message which is added automatically to record the user's request
+        non_message_steps = [step for step in plan.steps if step.tool_name not in ["message", "user_message"]]
         assert len(non_message_steps) == 0, "Factual queries should only use message tool"
         # Plan should have completed successfully (check for message steps)
 
@@ -96,7 +98,8 @@ async def test_simple_definitions():
         message_steps = [step for step in plan.completed if step.tool_name == "message"]
         assert len(message_steps) > 0, "Plan should use message tool for responses"
         # Check that only message tools were used (no bash/file operations)
-        non_message_steps = [step for step in plan.steps if step.tool_name != "message"]
+        # Exclude user_message which is added automatically to record the user's request
+        non_message_steps = [step for step in plan.steps if step.tool_name not in ["message", "user_message"]]
         assert len(non_message_steps) == 0, "Definition queries should only use message tool"
         # Plan should have completed successfully (check for message steps)
 
@@ -130,7 +133,8 @@ async def test_informational_queries():
         message_steps = [step for step in plan.completed if step.tool_name == "message"]
         assert len(message_steps) > 0, "Plan should use message tool for responses"
         # Check that only message tools were used (no bash/file operations)
-        non_message_steps = [step for step in plan.steps if step.tool_name != "message"]
+        # Exclude user_message which is added automatically to record the user's request
+        non_message_steps = [step for step in plan.steps if step.tool_name not in ["message", "user_message"]]
         assert len(non_message_steps) == 0, "Informational queries should only use message tool"
         # Plan should have completed successfully (check for message steps)
 
@@ -160,15 +164,18 @@ async def test_actual_file_operations():
         assert len(plan.steps) > 0, f"File operations should require tool execution: {query}"
         # Plan should have completed successfully (check for message steps)
 
-        # Verify first step uses expected tool
-        first_step = plan.steps[0]
-        assert first_step.tool_name == expected_tool, f"Expected {expected_tool} tool, got {first_step.tool_name}"
-        assert first_step.result is not None, f"Tool execution should have a result"
+        # Verify the actual operation step (skip user_message which is always first)
+        # Find the first non-user_message step
+        operation_steps = [step for step in plan.steps if step.tool_name != "user_message"]
+        assert len(operation_steps) > 0, "Should have operation steps beyond user_message"
+        first_operation = operation_steps[0]
+        assert first_operation.tool_name == expected_tool, f"Expected {expected_tool} tool, got {first_operation.tool_name}"
+        assert first_operation.result is not None, f"Tool execution should have a result"
 
         # Verify tool parameters contain expected command
         if expected_tool == "bash":
-            assert "command" in first_step.parameters, "Bash tool should have command parameter"
-            command = first_step.parameters["command"]
+            assert "command" in first_operation.parameters, "Bash tool should have command parameter"
+            command = first_operation.parameters["command"]
             assert expected_command in command, f"Expected '{expected_command}' in command: {command}"
 
 
@@ -195,7 +202,8 @@ async def test_simple_comparisons():
         message_steps = [step for step in plan.completed if step.tool_name == "message"]
         assert len(message_steps) > 0, "Plan should use message tool for responses"
         # Check that only message tools were used (no bash/file operations)
-        non_message_steps = [step for step in plan.steps if step.tool_name != "message"]
+        # Exclude user_message which is added automatically to record the user's request
+        non_message_steps = [step for step in plan.steps if step.tool_name not in ["message", "user_message"]]
         assert len(non_message_steps) == 0, "Comparison queries should only use message tool"
         # Plan should have completed successfully (check for message steps)
 
@@ -225,17 +233,20 @@ async def test_coding_tasks_with_tool_execution():
         assert len(plan.steps) > 0, f"Coding tasks should require tool execution: {query}"
         # Plan should have completed successfully (check for message steps)
 
-        # Verify first step uses expected tool
-        first_step = plan.steps[0]
-        assert first_step.tool_name == expected_tool, f"Expected {expected_tool} tool, got {first_step.tool_name}"
-        assert first_step.result is not None, f"Tool execution should have a result"
+        # Verify the actual operation step (skip user_message which is always first)
+        # Find the first non-user_message step
+        operation_steps = [step for step in plan.steps if step.tool_name != "user_message"]
+        assert len(operation_steps) > 0, "Should have operation steps beyond user_message"
+        first_operation = operation_steps[0]
+        assert first_operation.tool_name == expected_tool, f"Expected {expected_tool} tool, got {first_operation.tool_name}"
+        assert first_operation.result is not None, f"Tool execution should have a result"
 
         # Verify tool parameters contain expected content
         if expected_tool == "bash":
-            assert "command" in first_step.parameters, "Bash tool should have command parameter"
-            command_lower = first_step.parameters["command"].lower()
+            assert "command" in first_operation.parameters, "Bash tool should have command parameter"
+            command_lower = first_operation.parameters["command"].lower()
             assert expected_content in command_lower, f"Expected '{expected_content}' in bash command"
         elif expected_tool == "write":
-            assert "content" in first_step.parameters, "Write tool should have content parameter"
-            content_lower = first_step.parameters["content"].lower()
+            assert "content" in first_operation.parameters, "Write tool should have content parameter"
+            content_lower = first_operation.parameters["content"].lower()
             assert expected_content in content_lower, f"Expected '{expected_content}' in write content"

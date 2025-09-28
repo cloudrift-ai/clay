@@ -3,7 +3,7 @@
 from .base import Agent
 from ..llm import completion
 from ..orchestrator import Plan, Step
-from ..tools import MessageTool, UserInputTool
+from ..tools import MessageTool, UserMessageTool
 from ..trace import trace_operation
 
 
@@ -30,7 +30,7 @@ class LLMAgent(Agent):
         # Register communication tools
         self.register_tools([
             MessageTool(),
-            UserInputTool()
+            UserMessageTool()
         ])
 
     @trace_operation

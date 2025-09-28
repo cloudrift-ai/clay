@@ -239,6 +239,26 @@ Selection criteria are automatically derived from each agent's description and c
             # Get initial plan from agent
             plan = await selected_agent.run(goal)
 
+            # Add initial UserMessageTool as completed step to record the user's request
+            from clay.orchestrator.plan import Step
+            user_message_step = Step(
+                tool_name="user_message",
+                parameters={"message": goal},
+                description="User's initial request"
+            )
+            # Mark it as already completed since it represents the input
+            user_message_step.status = "SUCCESS"
+            user_message_step.result = {
+                "output": goal,
+                "metadata": {
+                    "message": goal,
+                    "tool_type": "user_context",
+                    "timestamp": datetime.now().isoformat()
+                }
+            }
+            # Insert at the beginning of completed steps
+            plan.completed.insert(0, user_message_step)
+
             # Save initial plan (iteration 0)
             self._save_plan_to_trace_dir(plan, 0, goal)
 
