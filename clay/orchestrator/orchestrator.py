@@ -85,10 +85,9 @@ Selection criteria are automatically derived from each agent's description and c
         filename = f"plan_iter_{iteration:03d}_{timestamp}.json"
         filepath = trace_dir / filename
 
-        # Create plan data with metadata
+        # Create plan data with optimized structure for KV-cache
+        # Remove variable iteration and timestamp, standardize structure
         plan_data = {
-            "iteration": iteration,
-            "timestamp": datetime.now().isoformat(),
             "goal": goal,
             "plan": plan.to_dict()
         }

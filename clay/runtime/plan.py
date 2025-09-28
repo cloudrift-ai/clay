@@ -116,10 +116,15 @@ class Plan:
 
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert Plan to dictionary."""
+        """Convert Plan to dictionary with optimized structure for KV-cache.
+
+        Places completed steps before todo steps to maintain consistent prefix
+        as tasks progress from todo to completed state. This ensures that the
+        goal + completed steps form a stable prefix for KV-cache optimization.
+        """
         return {
-            "todo": [step.to_dict() for step in self.todo],
             "completed": [step.to_dict() for step in self.completed],
+            "todo": [step.to_dict() for step in self.todo],
             "metadata": self.metadata
         }
 
