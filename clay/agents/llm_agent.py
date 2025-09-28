@@ -34,31 +34,41 @@ class LLMAgent(Agent):
         ])
 
     @trace_operation
-    async def review_plan(self, plan: Plan, task: str) -> Plan:
+    async def review_plan(self, plan: Plan) -> Plan:
         """Review current plan state and update todo list.
 
         For LLM agent, we typically don't need tools, so just provide a response.
+        The user's intent is communicated through UserMessageTool in plan.completed.
         """
         # If plan has no todos and has a message step in completed, return as-is
         has_message_step = any(step.tool_name == "message" for step in plan.completed)
         if not plan.todo and has_message_step:
             return plan
 
-        # Generate a response for the task (both initial and review cases)
-        if plan.completed:
-            # This is a review - we have completed steps
-            user_message = f"""Task: {task}
+        # Extract user intent from UserMessageTool
+        user_message_steps = [step for step in plan.completed if step.tool_name == "user_message"]
+        if not user_message_steps:
+            # Fallback for edge cases
+            task = "Please provide assistance"
+        else:
+            task = user_message_steps[0].parameters.get("message", "Please provide assistance")
 
-Current plan state:
+        # Generate a response for the task (both initial and review cases)
+        if len(plan.completed) > 1:  # More than just UserMessageTool
+            # This is a review - we have completed steps beyond UserMessageTool
+            user_message = f"""Current plan state:
 {plan.to_json()}
 
-Based on the current state, provide a final response or continue with more steps."""
+Based on the current state, provide a final response or continue with more steps.
+The user's original request is in the UserMessageTool."""
         else:
-            # This is initial planning
-            user_message = task
+            # This is initial planning - only UserMessageTool present
+            user_message = f"""The user has requested: {task}
+
+Provide a helpful response. For most tasks, you don't need tools - just provide the information directly."""
 
         messages = [
-            {"role": "system", "content": "You are a helpful AI assistant. Provide clear, concise answers. For most tasks, you don't need tools - just provide the information directly."},
+            {"role": "system", "content": "You are a helpful AI assistant. The user's intent is communicated through UserMessageTool in the plan. Provide clear, concise answers. For most tasks, you don't need tools - just provide the information directly."},
             {"role": "user", "content": user_message}
         ]
 

@@ -72,7 +72,7 @@ Selection criteria are automatically derived from each agent's description and c
 
         return selected_agent
 
-    def _save_plan_to_trace_dir(self, plan: Plan, iteration: int, goal: str) -> Path:
+    def _save_plan_to_trace_dir(self, plan: Plan, iteration: int) -> Path:
         """Save the plan to the traces directory for debugging."""
         # Use configured traces directory or default to current directory's _trace
         if self.traces_dir:
@@ -87,11 +87,8 @@ Selection criteria are automatically derived from each agent's description and c
         filepath = trace_dir / filename
 
         # Create plan data with optimized structure for KV-cache
-        # Remove variable iteration and timestamp, standardize structure
-        plan_data = {
-            "goal": goal,
-            "plan": plan.to_dict()
-        }
+        # Goal is now embedded in UserMessageTool, no need for separate goal field
+        plan_data = plan.to_dict()
 
         # Save to file
         with open(filepath, 'w') as f:
@@ -231,16 +228,8 @@ Selection criteria are automatically derived from each agent's description and c
                 session_id = f"orchestrator_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 set_session_id(session_id)
 
-            # Select the best agent for the task
-            selected_agent_name = await self.select_agent(goal)
-            selected_agent = self.agents[selected_agent_name]
-            agent_tools = self.agent_tools[selected_agent_name]
-
-            # Get initial plan from agent
-            plan = await selected_agent.run(goal)
-
-            # Add initial UserMessageTool as completed step to record the user's request
-            from clay.orchestrator.plan import Step
+            # Create initial plan with UserMessageTool
+            from clay.orchestrator.plan import Step, Plan
             user_message_step = Step(
                 tool_name="user_message",
                 parameters={"message": goal},
@@ -256,11 +245,20 @@ Selection criteria are automatically derived from each agent's description and c
                     "timestamp": datetime.now().isoformat()
                 }
             }
-            # Insert at the beginning of completed steps
-            plan.completed.insert(0, user_message_step)
+
+            # Create initial plan with UserMessageTool
+            plan = Plan(todo=[], completed=[user_message_step])
+
+            # Select the best agent for the task
+            selected_agent_name = await self.select_agent(goal)
+            selected_agent = self.agents[selected_agent_name]
+            agent_tools = self.agent_tools[selected_agent_name]
+
+            # Get initial plan from agent (pass plan with UserMessageTool instead of goal)
+            plan = await selected_agent.run(plan)
 
             # Save initial plan (iteration 0)
-            self._save_plan_to_trace_dir(plan, 0, goal)
+            self._save_plan_to_trace_dir(plan, 0)
 
             # Iterative execution loop
             max_iterations = 50  # Safety limit
@@ -307,10 +305,10 @@ Selection criteria are automatically derived from each agent's description and c
                 # Review if there are remaining todos OR if there are any failures to address
                 should_review = bool(plan.todo) or plan.has_failed
                 if should_review:
-                    plan = await selected_agent.review_plan(plan, goal)
+                    plan = await selected_agent.review_plan(plan)
 
                 # Save plan after each iteration
-                self._save_plan_to_trace_dir(plan, iteration, goal)
+                self._save_plan_to_trace_dir(plan, iteration)
 
                 # Save trace after each iteration (overwrites same file for real-time updates)
                 if self.traces_dir and session_id:
@@ -344,8 +342,10 @@ Selection criteria are automatically derived from each agent's description and c
             print(f"\n❌ ORCHESTRATOR ERROR: {str(e)}")
             print("\n🚫 Task failed due to orchestrator error")
 
+            # Get task description from goal or use generic fallback
+            task_desc = goal[:50] if len(goal) <= 50 else f"{goal[:47]}..."
             error_plan = Plan.create_error_response(
                 error=str(e),
-                description=f"Orchestrator error processing: {goal[:50]}..."
+                description=f"Orchestrator error processing: {task_desc}"
             )
             return error_plan

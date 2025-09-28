@@ -89,18 +89,20 @@ IMPORTANT: Return ONLY the JSON object above - no explanatory text, no comments,
 
 
     @abstractmethod
-    async def review_plan(self, plan: Plan, task: str) -> Plan:
-        """Review current plan state and update todo list based on completed steps."""
+    async def review_plan(self, plan: Plan) -> Plan:
+        """Review current plan state and update todo list based on completed steps.
+
+        The user's intent is communicated through UserMessageTool in the plan.completed list.
+        """
         pass
 
     @trace_operation
-    async def run(self, prompt: str) -> Plan:
-        """Run the agent with a prompt to produce an initial plan."""
+    async def run(self, plan: Plan) -> Plan:
+        """Run the agent with a plan containing UserMessageTool to produce an initial plan."""
         try:
-            # Create empty plan and let agent populate it
-            empty_plan = Plan(todo=[], completed=[])
-            plan = await self.review_plan(empty_plan, prompt)
-            return plan
+            # Review the plan which should contain UserMessageTool with user's intent
+            updated_plan = await self.review_plan(plan)
+            return updated_plan
 
         except Exception as e:
             error_plan = Plan.create_error_response(str(e))

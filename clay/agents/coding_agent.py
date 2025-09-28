@@ -56,24 +56,35 @@ class CodingAgent(Agent):
         ])
 
     @trace_operation
-    async def review_plan(self, plan: Plan, task: str) -> Plan:
-        """Review current plan state and update todo list based on completed steps."""
+    async def review_plan(self, plan: Plan) -> Plan:
+        """Review current plan state and update todo list based on completed steps.
+
+        The user's intent is communicated through UserMessageTool in plan.completed.
+        """
         system_prompt = self._build_system_prompt()
 
-        # Distinguish between initial planning and ongoing review
-        if not plan.completed and not plan.todo:
-            # Initial planning - create first todo list
-            user_message = f"""Task: {task}
+        # Extract user intent from UserMessageTool
+        user_message_steps = [step for step in plan.completed if step.tool_name == "user_message"]
+        if not user_message_steps:
+            # Fallback for edge cases
+            task = "Please provide assistance"
+        else:
+            task = user_message_steps[0].parameters.get("message", "Please provide assistance")
 
-This is a new task. Create an initial plan with the necessary steps."""
+        # Distinguish between initial planning and ongoing review
+        if len(plan.completed) <= 1 and not plan.todo:  # Only UserMessageTool present
+            # Initial planning - create first todo list
+            user_message = f"""The user has requested: {task}
+
+This is a new task. Create an initial plan with the necessary steps.
+The user's intent is captured in the UserMessageTool in the completed steps."""
         else:
             # Ongoing review - review current state and update todos
-            user_message = f"""Task: {task}
-
-Current plan state:
+            user_message = f"""Current plan state:
 {plan.to_json()}
 
 CRITICAL: Review the current plan and update the todo list.
+The user's original request is captured in the UserMessageTool.
 
 FAILURE HANDLING:
 - ALWAYS check the "status" field of completed steps
@@ -135,6 +146,12 @@ Provide the updated todo list based on completed vs remaining work."""
 
         return f"""You are a Senior Software Engineer with 10+ years of experience in enterprise software development.
 
+USER INTENT COMMUNICATION:
+• The user's request and intent is communicated through UserMessageTool in the plan's completed steps
+• UserMessageTool contains the original user message/prompt in its parameters
+• Always reference the UserMessageTool to understand what the user wants to accomplish
+• The user's intent should guide all technical decisions and implementation approaches
+
 CORE ENGINEERING PRINCIPLES:
 • Write clean, maintainable, and well-documented code
 • Follow Test-Driven Development (TDD) practices
@@ -146,18 +163,19 @@ CORE ENGINEERING PRINCIPLES:
 • Use proper version control and CI/CD practices
 
 DEVELOPMENT WORKFLOW:
-1. Understand requirements thoroughly before coding
-2. Read existing code to understand current structure
-3. Check completed steps for "status": "FAILURE" and address any failures FIRST
-4. Design architecture and consider edge cases
-5. Write tests first (TDD approach when applicable)
-6. Create/update files with clean, readable code
-7. Add comprehensive error handling
-8. Document code and APIs appropriately
-9. Run tests and ensure all pass
-10. Perform code quality checks (linting, type checking)
-11. Consider security implications and vulnerabilities
-12. Optimize performance where needed
+1. Extract user requirements from UserMessageTool in completed steps
+2. Understand requirements thoroughly before coding
+3. Read existing code to understand current structure
+4. Check completed steps for "status": "FAILURE" and address any failures FIRST
+5. Design architecture and consider edge cases
+6. Write tests first (TDD approach when applicable)
+7. Create/update files with clean, readable code
+8. Add comprehensive error handling
+9. Document code and APIs appropriately
+10. Run tests and ensure all pass
+11. Perform code quality checks (linting, type checking)
+12. Consider security implications and vulnerabilities
+13. Optimize performance where needed
 
 CRITICAL STEP ORDERING:
 • Steps execute in sequential order (step 1, then step 2, then step 3, etc.)
@@ -203,17 +221,18 @@ For new tasks, create an initial plan following these engineering principles.
 For ongoing tasks, review completed steps and update the todo list ensuring quality standards.
 
 You will receive:
-1. The original task
-2. A list of completed steps and their results (if any)
-3. The current todo list (if any)
+1. A plan with completed steps (including UserMessageTool with the user's request)
+2. The current todo list (if any)
+3. Results from any executed steps
 
 Your job is to:
-1. For new tasks: Create an initial todo list following best practices
-2. For ongoing tasks: Review results and update the todo list
-3. Ensure each step meets professional quality standards
-4. Include testing and quality assurance steps
-5. Consider security and performance implications
-6. If the task is complete, provide comprehensive final output
+1. Extract user intent from UserMessageTool in the completed steps
+2. For new tasks: Create an initial todo list following best practices
+3. For ongoing tasks: Review results and update the todo list
+4. Ensure each step meets professional quality standards
+5. Include testing and quality assurance steps
+6. Consider security and performance implications
+7. If the task is complete, provide comprehensive final output
 
 Available tools:
 {tools_desc}

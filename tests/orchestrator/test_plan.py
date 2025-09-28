@@ -137,26 +137,26 @@ class TestPlanSerialization:
             goal = "create and run hello world script"
 
             # Save plan using orchestrator method
-            filepath = orchestrator._save_plan_to_trace_dir(plan, 0, goal)
+            filepath = orchestrator._save_plan_to_trace_dir(plan, 0)
 
             # Read and verify the saved plan structure
             with open(filepath, 'r') as f:
                 saved_data = json.load(f)
 
-            # Verify optimized structure (no iteration/timestamp at top level)
-            assert "goal" in saved_data
-            assert "plan" in saved_data
+            # Verify optimized structure (goal is now embedded in UserMessageTool)
+            assert "completed" in saved_data
+            assert "todo" in saved_data
+            assert "goal" not in saved_data  # Removed for KV-cache optimization - now in UserMessageTool
             assert "iteration" not in saved_data  # Removed for KV-cache optimization
             assert "timestamp" not in saved_data  # Removed for KV-cache optimization
 
             # Verify plan structure has completed before todo
-            plan_data = saved_data["plan"]
-            keys = list(plan_data.keys())
+            keys = list(saved_data.keys())
             assert keys.index("completed") < keys.index("todo")
 
             print(f"✅ Orchestrator serialization structure verified")
-            print(f"  Goal prefix: '{saved_data['goal'][:50]}...'")
             print(f"  Plan keys order: {keys}")
+            print(f"  Structure: Plan data directly serialized (no separate goal field)")
 
     def test_prefix_optimization_with_realistic_scenario(self):
         """Test prefix optimization with a realistic multi-step coding scenario."""

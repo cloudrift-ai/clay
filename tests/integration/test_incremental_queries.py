@@ -1,10 +1,30 @@
 """Integration tests for incremental plan refinement and error correction."""
 
 import pytest
+from datetime import datetime
 
 from clay.agents.coding_agent import CodingAgent
 from clay.agents.llm_agent import LLMAgent
 from clay.orchestrator.plan import Plan, Step
+
+
+def create_user_message_step(message: str) -> Step:
+    """Helper to create a UserMessageTool step."""
+    user_message_step = Step(
+        tool_name="user_message",
+        parameters={"message": message},
+        description="User's initial request"
+    )
+    user_message_step.status = "SUCCESS"
+    user_message_step.result = {
+        "output": message,
+        "metadata": {
+            "message": message,
+            "tool_type": "user_context",
+            "timestamp": datetime.now().isoformat()
+        }
+    }
+    return user_message_step
 
 
 @pytest.mark.asyncio
@@ -12,7 +32,10 @@ async def test_incomplete_plan_refinement():
     """Test that agent can refine an incomplete plan by adding necessary steps."""
     agent = CodingAgent()
 
-    # Create an incomplete plan - missing a crucial step
+    # Create a plan with UserMessageTool - missing a crucial step
+    task = "Create a file called output.txt with 'Hello World' and then verify it was created successfully"
+    user_message_step = create_user_message_step(task)
+
     incomplete_plan = Plan(
         todo=[
             Step(
@@ -21,13 +44,11 @@ async def test_incomplete_plan_refinement():
                 description="Create a file with Hello World"
             )
         ],
-        completed=[]
+        completed=[user_message_step]
     )
 
-    task = "Create a file called output.txt with 'Hello World' and then verify it was created successfully"
-
     # Agent should refine the plan to add the verification step
-    refined_plan = await agent.review_plan(incomplete_plan, task)
+    refined_plan = await agent.review_plan(incomplete_plan)
 
     # Check that agent added the missing verification step
     assert len(refined_plan.todo) >= 2, "Agent should add verification step to incomplete plan"
@@ -48,6 +69,9 @@ async def test_error_correction():
     agent = CodingAgent()
 
     # Create a plan with a completed failed step
+    task = "Create a file and read its contents"
+    user_message_step = create_user_message_step(task)
+
     failed_plan = Plan(
         todo=[
             Step(
@@ -57,6 +81,7 @@ async def test_error_correction():
             )
         ],
         completed=[
+            user_message_step,
             Step(
                 tool_name="bash",
                 parameters={"command": "touch /root/protected_file.txt"},
@@ -68,10 +93,8 @@ async def test_error_correction():
         ]
     )
 
-    task = "Create a file and read its contents"
-
     # Agent should correct the plan by using a different approach
-    corrected_plan = await agent.review_plan(failed_plan, task)
+    corrected_plan = await agent.review_plan(failed_plan)
 
     # Agent should either:
     # 1. Change the file location to somewhere writable
@@ -91,6 +114,9 @@ async def test_multi_step_plan_adjustment():
     agent = CodingAgent()
 
     # Create a plan where first step completed successfully but results suggest plan change
+    task = "Set up a new project directory with package.json"
+    user_message_step = create_user_message_step(task)
+
     plan_with_results = Plan(
         todo=[
             Step(
@@ -105,6 +131,7 @@ async def test_multi_step_plan_adjustment():
             )
         ],
         completed=[
+            user_message_step,
             Step(
                 tool_name="bash",
                 parameters={"command": "ls -la"},
@@ -120,10 +147,8 @@ async def test_multi_step_plan_adjustment():
         ]
     )
 
-    task = "Set up a new project directory with package.json"
-
     # Agent should see that test_project already exists and adjust the plan
-    adjusted_plan = await agent.review_plan(plan_with_results, task)
+    adjusted_plan = await agent.review_plan(plan_with_results)
 
     # Agent should modify the plan since directory already exists
     assert len(adjusted_plan.todo) > 0, "Agent should provide adjusted steps"
@@ -143,9 +168,13 @@ async def test_llm_agent_handles_plan_state():
     agent = LLMAgent()
 
     # Create a plan with no completed message steps so agent will respond
+    task = "Now what is 4*3?"
+    user_message_step = create_user_message_step(task)
+
     plan_with_history = Plan(
         todo=[],
         completed=[
+            user_message_step,
             Step(
                 tool_name="bash",
                 parameters={"command": "echo 'Previous calculation: 2+2=4'"},
@@ -161,10 +190,8 @@ async def test_llm_agent_handles_plan_state():
         ]
     )
 
-    task = "Now what is 4*3?"
-
     # LLM agent should provide follow-up answer considering context
-    updated_plan = await agent.review_plan(plan_with_history, task)
+    updated_plan = await agent.review_plan(plan_with_history)
 
     # Should have a message step in todo list
     assert len(updated_plan.todo) > 0, "LLM agent should provide a response step"
@@ -184,9 +211,13 @@ async def test_plan_completion_detection():
     agent = CodingAgent()
 
     # Create a plan where the task is already complete
+    task = "Create a file called result.txt with success message and verify it"
+    user_message_step = create_user_message_step(task)
+
     completed_plan = Plan(
         todo=[],
         completed=[
+            user_message_step,
             Step(
                 tool_name="bash",
                 parameters={"command": "echo 'Task completed successfully' > result.txt"},
@@ -214,10 +245,8 @@ async def test_plan_completion_detection():
         ]
     )
 
-    task = "Create a file called result.txt with success message and verify it"
-
     # Agent should recognize the task is complete
-    final_plan = await agent.review_plan(completed_plan, task)
+    final_plan = await agent.review_plan(completed_plan)
 
     # Should either have no additional todos or a completion message
     if len(final_plan.todo) > 0:
@@ -236,6 +265,9 @@ async def test_partial_failure_recovery():
     agent = CodingAgent()
 
     # Create a plan with mixed success/failure results
+    task = "Create a backup of important files"
+    user_message_step = create_user_message_step(task)
+
     mixed_results_plan = Plan(
         todo=[
             Step(
@@ -245,6 +277,7 @@ async def test_partial_failure_recovery():
             )
         ],
         completed=[
+            user_message_step,
             Step(
                 tool_name="bash",
                 parameters={"command": "mkdir backup_dir"},
@@ -268,10 +301,8 @@ async def test_partial_failure_recovery():
         ]
     )
 
-    task = "Create a backup of important files"
-
     # Agent should handle the partial failure and adjust the plan
-    recovery_plan = await agent.review_plan(mixed_results_plan, task)
+    recovery_plan = await agent.review_plan(mixed_results_plan)
 
     # Agent should address the failure in some way - either by providing recovery steps
     # or by acknowledging the error and completing with what's available
@@ -304,12 +335,13 @@ async def test_agent_uses_message_tool():
     agent = CodingAgent()
 
     # Create a simple plan to test message tool usage
-    empty_plan = Plan(todo=[], completed=[])
-
     task = "Explain what tools you have available"
+    user_message_step = create_user_message_step(task)
+
+    empty_plan = Plan(todo=[], completed=[user_message_step])
 
     # Agent should create a plan that uses the message tool
-    plan = await agent.review_plan(empty_plan, task)
+    plan = await agent.review_plan(empty_plan)
 
     # Check that agent created steps (might include message tool)
     assert len(plan.todo) >= 0, "Agent should handle the request"
