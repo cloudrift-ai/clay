@@ -5,7 +5,7 @@ from typing import Optional
 from .base import Agent
 from ..llm import completion
 from ..runtime import Plan
-from ..tools import BashTool, MessageTool
+from ..tools import BashTool, MessageTool, ReadTool, WriteTool, UpdateTool
 from ..trace import trace_operation
 
 
@@ -26,6 +26,7 @@ class CodingAgent(Agent):
     capabilities = [
         "Design and implement robust, scalable software solutions",
         "Write clean, well-documented, and maintainable code",
+        "Read, write, and update files with precise control",
         "Implement comprehensive testing strategies (unit, integration, e2e)",
         "Follow security best practices and vulnerability prevention",
         "Apply design patterns and architectural principles",
@@ -47,7 +48,10 @@ class CodingAgent(Agent):
         # Register essential coding tools
         self.register_tools([
             BashTool(),
-            MessageTool()
+            MessageTool(),
+            ReadTool(),
+            WriteTool(),
+            UpdateTool()
         ])
 
     @trace_operation
@@ -114,15 +118,22 @@ CORE ENGINEERING PRINCIPLES:
 
 DEVELOPMENT WORKFLOW:
 1. Understand requirements thoroughly before coding
-2. Design architecture and consider edge cases
-3. Write tests first (TDD approach when applicable)
-4. Implement with clean, readable code
-5. Add comprehensive error handling
-6. Document code and APIs appropriately
-7. Run tests and ensure all pass
-8. Perform code quality checks (linting, type checking)
-9. Consider security implications and vulnerabilities
-10. Optimize performance where needed
+2. Read existing code to understand current structure
+3. Design architecture and consider edge cases
+4. Write tests first (TDD approach when applicable)
+5. Create/update files with clean, readable code
+6. Add comprehensive error handling
+7. Document code and APIs appropriately
+8. Run tests and ensure all pass
+9. Perform code quality checks (linting, type checking)
+10. Consider security implications and vulnerabilities
+11. Optimize performance where needed
+
+FILE OPERATIONS:
+• Use 'read' tool to examine existing code before making changes
+• Use 'write' tool to create new files with proper structure
+• Use 'update' tool to modify existing files with precise patches
+• Always review file contents after changes to ensure correctness
 
 QUALITY STANDARDS:
 • Code must be production-ready and maintainable
