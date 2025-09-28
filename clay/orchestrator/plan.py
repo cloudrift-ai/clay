@@ -44,11 +44,8 @@ class Plan:
     """A complete execution plan containing multiple steps."""
     todo: List[Step]  # Steps yet to be executed
     completed: List[Step] = None  # Steps that have been completed
-    metadata: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
         if self.completed is None:
             self.completed = []
 
@@ -118,7 +115,6 @@ class Plan:
         return {
             "completed": [step.to_dict() for step in self.completed],
             "todo": [step.to_dict() for step in self.todo],
-            "metadata": self.metadata
         }
 
     def to_json(self) -> str:
@@ -134,7 +130,6 @@ class Plan:
         return cls(
             todo=todo,
             completed=completed,
-            metadata=data.get("metadata", {})
         )
 
     @classmethod

@@ -105,7 +105,6 @@ class TestPlanSerialization:
         empty_dict = empty_plan.to_dict()
         assert "completed" in empty_dict
         assert "todo" in empty_dict
-        assert "metadata" in empty_dict
 
         # Test 2: Plan with only completed items
         completed_step = Step("message", {"message": "Task done"}, "Completion message")
@@ -252,8 +251,8 @@ class TestPlanSerialization:
         print(f"  Minimum prefix across all transitions: {min_prefix_percentage:.1f}%")
         print(f"  Total plan state transitions: {total_transitions}")
 
-    def test_prefix_comparison_old_vs_new_format(self):
-        """Compare prefix efficiency between old and new plan formats."""
+    def test_prefix_progression_improvement(self):
+        """Test that prefix stability improves as plan progresses."""
         goal = "create a simple web app"
 
         # Create a plan with a few steps
@@ -265,78 +264,44 @@ class TestPlanSerialization:
 
         plan = Plan(todo=steps)
 
-        # Old format (with iteration and timestamp at top, todo before completed)
-        def create_old_format(plan, goal, iteration):
-            return {
-                "iteration": iteration,
-                "timestamp": "2025-09-27T22:35:32.288342",  # Fixed timestamp for comparison
-                "goal": goal,
-                "plan": {
-                    "todo": [step.to_dict() for step in plan.todo],
-                    "completed": [step.to_dict() for step in plan.completed],
-                    "metadata": plan.metadata
-                }
-            }
+        # Track states as plan progresses
+        states = []
 
-        # New format (no iteration/timestamp, completed before todo)
-        def create_new_format(plan, goal):
-            return {
-                "goal": goal,
-                "plan": plan.to_dict()  # Uses our optimized to_dict()
-            }
-
-        # Generate states for both formats
-        old_states = []
-        new_states = []
-
-        # Initial states
-        old_states.append(json.dumps(create_old_format(plan, goal, 0), indent=2))
-        new_states.append(json.dumps(create_new_format(plan, goal), indent=2))
+        # Initial state
+        plan_data = {"goal": goal, "plan": plan.to_dict()}
+        states.append(json.dumps(plan_data, indent=2))
 
         # Progress through steps
         for i in range(len(steps)):
             plan.complete_next_step({"output": f"Step {i+1} completed"})
-            old_states.append(json.dumps(create_old_format(plan, goal, i+1), indent=2))
-            new_states.append(json.dumps(create_new_format(plan, goal), indent=2))
+            plan_data = {"goal": goal, "plan": plan.to_dict()}
+            states.append(json.dumps(plan_data, indent=2))
 
-        # Calculate prefix improvements
-        def calculate_avg_prefix(states):
-            if len(states) < 2:
-                return 0.0
+        # Calculate prefix percentages
+        prefix_percentages = []
+        for i in range(len(states) - 1):
+            current = states[i]
+            next_state = states[i + 1]
 
-            total_percentage = 0.0
-            transitions = len(states) - 1
+            common_len = 0
+            for j in range(min(len(current), len(next_state))):
+                if current[j] == next_state[j]:
+                    common_len += 1
+                else:
+                    break
 
-            for i in range(transitions):
-                current = states[i]
-                next_state = states[i + 1]
+            percentage = common_len / max(len(current), len(next_state)) * 100
+            prefix_percentages.append(percentage)
 
-                common_len = 0
-                for j in range(min(len(current), len(next_state))):
-                    if current[j] == next_state[j]:
-                        common_len += 1
-                    else:
-                        break
+        print(f"✅ Prefix progression analysis:")
+        for i, percentage in enumerate(prefix_percentages):
+            print(f"  Step {i}→{i+1}: {percentage:.1f}% common prefix")
 
-                percentage = common_len / max(len(current), len(next_state)) * 100
-                total_percentage += percentage
-
-            return total_percentage / transitions
-
-        old_avg_prefix = calculate_avg_prefix(old_states)
-        new_avg_prefix = calculate_avg_prefix(new_states)
-        improvement = new_avg_prefix - old_avg_prefix
-
-        print(f"✅ Format comparison results:")
-        print(f"  Old format average prefix: {old_avg_prefix:.1f}%")
-        print(f"  New format average prefix: {new_avg_prefix:.1f}%")
-        print(f"  Improvement: +{improvement:.1f} percentage points")
-
-        # Verify that new format provides better prefix stability
-        assert new_avg_prefix >= old_avg_prefix, \
-            f"New format should have better or equal prefix stability: {new_avg_prefix:.1f}% vs {old_avg_prefix:.1f}%"
-
-        # For this specific test case, we should see some improvement
-        # (though the exact amount depends on the content structure)
-        assert improvement >= -5.0, \
-            f"Prefix improvement should be at least -5.0 percentage points, got {improvement:.1f}"
+        # Verify that prefix stability generally improves as plan progresses
+        # Later transitions should have higher prefix percentages
+        if len(prefix_percentages) > 1:
+            # Check that the last transition has better prefix than the first
+            improvement = prefix_percentages[-1] - prefix_percentages[0]
+            print(f"  Overall improvement: {improvement:.1f} percentage points")
+            assert improvement >= 0, \
+                f"Prefix stability should improve as plan progresses: {improvement:.1f}"

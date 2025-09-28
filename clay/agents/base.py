@@ -100,19 +100,8 @@ IMPORTANT: Return ONLY the JSON object above - no explanatory text, no comments,
             # Create empty plan and let agent populate it
             empty_plan = Plan(todo=[], completed=[])
             plan = await self.review_plan(empty_plan, prompt)
-
-            # Add agent information to plan metadata
-            if not plan.metadata:
-                plan.metadata = {}
-            plan.metadata["agent_name"] = self.name
-            plan.metadata["agent_prompt"] = prompt[:100] + "..." if len(prompt) > 100 else prompt
-
             return plan
 
         except Exception as e:
             error_plan = Plan.create_error_response(str(e))
-            if not error_plan.metadata:
-                error_plan.metadata = {}
-            error_plan.metadata["agent_name"] = self.name
-            error_plan.metadata["agent_prompt"] = prompt[:100] + "..." if len(prompt) > 100 else prompt
             return error_plan
