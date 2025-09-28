@@ -1,4 +1,4 @@
-"""Message tool for agent communication without execution."""
+"""Console tools for agent communication and user interaction."""
 
 from typing import Dict, Any, Optional
 from .base import Tool, ToolResult, ToolStatus
@@ -128,4 +128,135 @@ class MessageTool(Tool):
                 status=ToolStatus.ERROR,
                 error=f"Failed to send message: {str(e)}",
                 metadata={"tool_type": "communication"}
+            )
+
+
+class UserInputToolResult(ToolResult):
+    """Specific result class for UserInputTool."""
+
+    def get_formatted_output(self) -> str:
+        """Get formatted output for Claude Code style display."""
+        if self.status == ToolStatus.SUCCESS and self.output:
+            return f"User response: {self.output}"
+        else:
+            return f"Error: {self.error or 'Failed to get user input'}"
+
+
+class UserInputTool(Tool):
+    """Tool for requesting input from the user during execution."""
+
+    def __init__(self):
+        super().__init__(
+            name="user_input",
+            description="Request input or clarification from the user during task execution",
+            capabilities=[
+                "Ask the user for additional information",
+                "Request clarification on requirements",
+                "Get user preferences or choices",
+                "Confirm actions with the user",
+                "Gather missing parameters"
+            ],
+            use_cases=[
+                "When task requirements are ambiguous",
+                "When user preferences are needed",
+                "When critical decisions require confirmation",
+                "When additional context is required",
+                "When choosing between multiple valid options"
+            ]
+        )
+
+    def get_tool_call_display(self, parameters: Dict[str, Any]) -> str:
+        """Get formatted display for user input tool invocation."""
+        prompt = parameters.get('prompt', '')
+        if len(prompt) > 60:
+            prompt = prompt[:57] + "..."
+        return f"⏺ UserInput({prompt})"
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Get the tool schema."""
+        return {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "The question or prompt to display to the user"
+                },
+                "default": {
+                    "type": "string",
+                    "description": "Optional default value if user provides no input"
+                },
+                "choices": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of valid choices to present to the user"
+                }
+            },
+            "required": ["prompt"]
+        }
+
+    @trace_operation
+    async def execute(self, prompt: str, default: Optional[str] = None, choices: Optional[list] = None, **kwargs) -> UserInputToolResult:
+        """Request input from the user.
+
+        Args:
+            prompt: The question or prompt to display
+            default: Optional default value
+            choices: Optional list of valid choices
+            **kwargs: Additional parameters (ignored)
+
+        Returns:
+            UserInputToolResult with the user's response
+        """
+        try:
+            # Format the prompt for display
+            formatted_prompt = f"\n❓ {prompt}"
+
+            if choices:
+                formatted_prompt += f"\n   Options: {', '.join(choices)}"
+
+            if default:
+                formatted_prompt += f"\n   (default: {default})"
+
+            formatted_prompt += "\n   > "
+
+            # Get user input (synchronously, as input() blocks)
+            user_response = input(formatted_prompt)
+
+            # Use default if no input provided
+            if not user_response and default:
+                user_response = default
+
+            # Validate against choices if provided
+            if choices and user_response not in choices:
+                return UserInputToolResult(
+                    status=ToolStatus.ERROR,
+                    error=f"Invalid choice. Please select from: {', '.join(choices)}",
+                    metadata={
+                        "prompt": prompt,
+                        "choices": choices,
+                        "tool_type": "interaction"
+                    }
+                )
+
+            return UserInputToolResult(
+                status=ToolStatus.SUCCESS,
+                output=user_response,
+                metadata={
+                    "prompt": prompt,
+                    "response": user_response,
+                    "tool_type": "interaction"
+                }
+            )
+
+        except KeyboardInterrupt:
+            return UserInputToolResult(
+                status=ToolStatus.ERROR,
+                error="User cancelled input",
+                metadata={"tool_type": "interaction"}
+            )
+        except Exception as e:
+            return UserInputToolResult(
+                status=ToolStatus.ERROR,
+                error=f"Failed to get user input: {str(e)}",
+                metadata={"tool_type": "interaction"}
             )

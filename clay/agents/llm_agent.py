@@ -3,7 +3,7 @@
 from .base import Agent
 from ..llm import completion
 from ..runtime import Plan
-from ..tools import MessageTool
+from ..tools import MessageTool, UserInputTool
 from ..trace import trace_operation
 
 
@@ -27,9 +27,10 @@ class LLMAgent(Agent):
         """Initialize the LLM agent."""
         super().__init__(name=self.name, description=self.description)
 
-        # Register message tool for communication
+        # Register communication tools
         self.register_tools([
-            MessageTool()
+            MessageTool(),
+            UserInputTool()
         ])
 
     @trace_operation
@@ -75,6 +76,5 @@ Based on the current state, provide a final response or continue with more steps
         )
 
         plan.todo = [message_step]
-        plan.description = f"LLM response to: {task[:50]}..."
 
         return plan

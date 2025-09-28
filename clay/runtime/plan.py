@@ -48,7 +48,6 @@ class Plan:
     """A complete execution plan containing multiple steps."""
     todo: List[Step]  # Steps yet to be executed
     completed: List[Step] = None  # Steps that have been completed
-    description: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
@@ -67,8 +66,7 @@ class Plan:
         )
         return cls(
             todo=[message_step],
-            completed=[],
-            description=description or "Simple response"
+            completed=[]
         )
 
     @classmethod
@@ -81,8 +79,7 @@ class Plan:
         )
         return cls(
             todo=[error_step],
-            completed=[],
-            description=description or "Error response"
+            completed=[]
         )
 
     @property
@@ -118,7 +115,6 @@ class Plan:
         return {
             "todo": [step.to_dict() for step in self.todo],
             "completed": [step.to_dict() for step in self.completed],
-            "description": self.description,
             "metadata": self.metadata
         }
 
@@ -135,7 +131,6 @@ class Plan:
         return cls(
             todo=todo,
             completed=completed,
-            description=data.get("description"),
             metadata=data.get("metadata", {})
         )
 
@@ -192,13 +187,11 @@ class Plan:
 
             return cls(
                 todo=steps,
-                completed=[],
-                description=data.get("thought", "Generated plan")
+                completed=[]
             )
         else:
             # No plan needed - just return simple response
             return cls.create_simple_response(
-                message=data.get("output", "Task completed"),
-                description=data.get("thought", "Simple response")
+                message=data.get("output", "Task completed")
             )
 

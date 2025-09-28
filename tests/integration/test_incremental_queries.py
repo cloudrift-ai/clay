@@ -22,8 +22,7 @@ async def test_incomplete_plan_refinement():
                 description="Create a file with Hello World"
             )
         ],
-        completed=[],
-        description="Create and verify a file"
+        completed=[]
     )
 
     task = "Create a file called output.txt with 'Hello World' and then verify it was created successfully"
@@ -66,8 +65,7 @@ async def test_error_correction():
                 result=None,
                 error="touch: cannot touch '/root/protected_file.txt': Permission denied"
             )
-        ],
-        description="Create and read a file",
+        ]
     )
 
     task = "Create a file and read its contents"
@@ -118,8 +116,7 @@ async def test_multi_step_plan_adjustment():
                 },
                 error=None
             )
-        ],
-        description="Set up a new project",
+        ]
     )
 
     task = "Set up a new project directory with package.json"
@@ -159,8 +156,7 @@ async def test_llm_agent_handles_plan_state():
                 },
                 error=None
             )
-        ],
-        description="Math conversation"
+        ]
     )
 
     task = "Now what is 4*3?"
@@ -211,8 +207,7 @@ async def test_plan_completion_detection():
                 },
                 error=None
             )
-        ],
-        description="Create and verify a result file",
+        ]
     )
 
     task = "Create a file called result.txt with success message and verify it"
@@ -264,8 +259,7 @@ async def test_partial_failure_recovery():
                 result=None,
                 error="cp: cannot stat 'important_file.txt': No such file or directory"
             )
-        ],
-        description="Backup important files",
+        ]
     )
 
     task = "Create a backup of important files"

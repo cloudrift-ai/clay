@@ -5,7 +5,7 @@ from typing import Optional
 from .base import Agent
 from ..llm import completion
 from ..runtime import Plan
-from ..tools import BashTool, MessageTool, ReadTool, WriteTool, UpdateTool
+from ..tools import BashTool, MessageTool, UserInputTool, ReadTool, WriteTool, UpdateTool
 from ..trace import trace_operation
 
 
@@ -49,6 +49,7 @@ class CodingAgent(Agent):
         self.register_tools([
             BashTool(),
             MessageTool(),
+            UserInputTool(),
             ReadTool(),
             WriteTool(),
             UpdateTool()
