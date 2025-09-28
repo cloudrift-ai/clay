@@ -55,7 +55,9 @@ class Agent(ABC):
 
     def get_json_format_instructions(self) -> str:
         """Get standard JSON format instructions for tool-using agents."""
-        return """ALWAYS respond with valid JSON in this exact format:
+        return """ALWAYS respond with ONLY valid JSON - no additional text before or after:
+
+JSON FORMAT:
 
 {
     "thought": "I need to analyze the task and decide what tools to use",
@@ -72,12 +74,21 @@ class Agent(ABC):
     "output": "Summary of the plan or next actions"
 }
 
+CRITICAL PLANNING RULES:
+- Steps execute in sequential order (first step, then second step, etc.)
+- Files must be created before they can be executed
+- Tests must be created before they can be run
+- Never plan to run files that don't exist yet
+- Plan creation steps before execution steps
+
 If no more tools are needed:
 {
     "thought": "Task is complete or no tools needed",
     "todo": [],
     "output": "Final response or information"
-}"""
+}
+
+IMPORTANT: Return ONLY the JSON object above - no explanatory text, no comments, no additional content before or after the JSON."""
 
     def get_tools_summary(self) -> Dict[str, Dict[str, Any]]:
         """Get a structured summary of available tools."""

@@ -73,9 +73,14 @@ This is a new task. Create an initial plan with the necessary steps."""
 Current plan state:
 {plan.to_json()}
 
-Based on the completed steps and their results, provide an updated todo list.
-If the task is complete, return an empty todo list with the final output.
-If more steps are needed, specify them in the todo list."""
+CRITICAL: Review the current plan and update the todo list.
+- Keep all remaining planned steps that haven't been completed yet
+- Only add new steps if errors occurred or requirements changed
+- If task is complete, return empty todo list
+- DO NOT remove planned steps just because some other steps completed
+- Preserve the original step sequence and don't skip planned file creation steps
+
+Provide the updated todo list based on completed vs remaining work."""
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -129,6 +134,14 @@ DEVELOPMENT WORKFLOW:
 9. Perform code quality checks (linting, type checking)
 10. Consider security implications and vulnerabilities
 11. Optimize performance where needed
+
+CRITICAL STEP ORDERING:
+• Steps execute in sequential order (step 1, then step 2, then step 3, etc.)
+• NEVER execute files that don't exist yet - CREATE them first
+• NEVER run tests before creating the test files - WRITE tests first
+• ALWAYS plan file creation before file execution
+• Example correct order: 1) write main.py, 2) run python main.py
+• Example wrong order: 1) run python main.py, 2) write main.py
 
 FILE OPERATIONS:
 • Use 'read' tool to examine existing code before making changes
@@ -185,7 +198,8 @@ Available tools:
 
 EXECUTION REQUIREMENTS:
 - Create concrete, actionable steps with specific tools and commands
-- Include testing steps for any code changes
+- PLAN STEPS IN CORRECT ORDER: create files first, then execute them
+- Include testing steps for any code changes (create tests before running them)
 - Add code quality checks (linting, type checking) where applicable
 - Consider error handling and edge cases in implementations
 - Review results carefully and add corrective steps if needed
