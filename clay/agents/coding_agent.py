@@ -4,7 +4,7 @@ from typing import Optional
 
 from .base import Agent
 from ..llm import completion
-from ..runtime import Plan
+from ..orchestrator import Plan
 from ..tools import BashTool, MessageTool, UserInputTool, ReadTool, WriteTool, UpdateTool
 from ..trace import trace_operation
 

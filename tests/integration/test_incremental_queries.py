@@ -1,11 +1,10 @@
 """Integration tests for incremental plan refinement and error correction."""
 
 import pytest
-from pathlib import Path
 
 from clay.agents.coding_agent import CodingAgent
 from clay.agents.llm_agent import LLMAgent
-from clay.runtime.plan import Plan, Step
+from clay.orchestrator.plan import Plan, Step
 
 
 @pytest.mark.asyncio

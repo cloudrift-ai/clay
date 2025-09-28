@@ -1,9 +1,8 @@
 """Tests for plan serialization and KV-cache optimization."""
 
 import json
-import pytest
 from pathlib import Path
-from clay.runtime.plan import Plan, Step
+from clay.orchestrator.plan import Plan, Step
 from clay.orchestrator.orchestrator import ClayOrchestrator
 
 

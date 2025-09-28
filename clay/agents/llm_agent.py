@@ -2,7 +2,7 @@
 
 from .base import Agent
 from ..llm import completion
-from ..runtime import Plan
+from ..orchestrator import Plan, Step
 from ..tools import MessageTool, UserInputTool
 from ..trace import trace_operation
 
@@ -65,7 +65,6 @@ Based on the current state, provide a final response or continue with more steps
         response = await completion(messages=messages, temperature=0.5)
 
         # Create a message step with the response
-        from ..runtime import Step
         message_step = Step(
             tool_name="message",
             parameters={

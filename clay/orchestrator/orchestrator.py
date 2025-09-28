@@ -1,4 +1,4 @@
-"""Clay orchestrator that uses agents to create plans and runtime to execute them."""
+"""Clay orchestrator that uses agents to create plans and to execute them."""
 
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -7,9 +7,7 @@ import sys
 import os
 from datetime import datetime
 
-from ..agents.llm_agent import LLMAgent
-from ..agents.coding_agent import CodingAgent
-from ..runtime import Plan
+from .plan import Plan
 from ..llm import completion
 from ..trace import trace_operation, clear_trace, save_trace_file, set_session_id
 
@@ -23,6 +21,9 @@ class ClayOrchestrator:
         Args:
             traces_dir: Directory to save traces and plan files. If None, uses current directory's _trace/
         """
+        from ..agents.llm_agent import LLMAgent
+        from ..agents.coding_agent import CodingAgent
+
         # Initialize all available agents
         self.agents = {
             'llm_agent': LLMAgent(),
@@ -298,7 +299,7 @@ Selection criteria are automatically derived from each agent's description and c
             # Check if we hit the iteration limit
             if iteration >= max_iterations:
                 # Add error message to todo list
-                from ..runtime.plan import Step
+                from clay.orchestrator.plan import Step
                 error_step = Step(
                     tool_name="message",
                     parameters={
