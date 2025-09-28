@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass
 from pathlib import Path
 
-from .base import Tool, ToolResult, ToolStatus
+from .base import Tool, ToolResult, ToolError
 from ..trace import trace_operation
 
 
@@ -28,54 +28,48 @@ class FileToolResult(ToolResult):
 
     def console_summary(self) -> str:
         """Get a console-friendly summary of the file operation."""
-        if self.status == ToolStatus.SUCCESS:
-            operation_desc = {
-                "read": "Read",
-                "write": "Created",
-                "update": "Updated"
-            }.get(self.operation, "Modified")
+        operation_desc = {
+            "read": "Read",
+            "write": "Created",
+            "update": "Updated"
+        }.get(self.operation, "Modified")
 
-            file_display = self.file_path if self.file_path else "file"
+        file_display = self.file_path if self.file_path else "file"
 
-            if self.lines_affected:
-                return f"✅ {operation_desc} {file_display} ({self.lines_affected} lines)"
-            else:
-                return f"✅ {operation_desc} {file_display}"
+        if self.lines_affected:
+            return f"✅ {operation_desc} {file_display} ({self.lines_affected} lines)"
         else:
-            return f"❌ File operation failed: {self.error}"
+            return f"✅ {operation_desc} {file_display}"
 
     def get_formatted_output(self) -> str:
         """Get formatted output for Claude Code style display."""
-        if self.status == ToolStatus.SUCCESS:
-            if self.operation == "read":
-                # For read operations, show the content (it's already formatted with line numbers)
-                return self.output or f"Read {self.lines_affected} lines from {self.file_path}"
-            elif self.operation == "write":
-                # For write operations, show the actual content
-                if self.output:
-                    # Format the content with line numbers for display
-                    lines = self.output.splitlines()
-                    formatted_lines = []
-                    for i, line in enumerate(lines, 1):
-                        formatted_lines.append(f"{i:4d}→ {line}")
-                    return '\n'.join(formatted_lines)
-                else:
-                    return f"Created {self.file_path} with {self.lines_affected} lines"
-            elif self.operation == "update":
-                # For update operations, show the diff output
-                if self.output and "⏺ Update" not in self.output:
-                    # Return the diff output without the header
-                    return self.output
-                elif self.output:
-                    # Extract just the diff part
-                    lines = self.output.splitlines()
-                    if len(lines) > 2:
-                        return '\n'.join(lines[1:])  # Skip the ⏺ Update line
-                return f"Updated {self.file_path} with {self.lines_affected} changes"
+        if self.operation == "read":
+            # For read operations, show the content (it's already formatted with line numbers)
+            return self.output or f"Read {self.lines_affected} lines from {self.file_path}"
+        elif self.operation == "write":
+            # For write operations, show the actual content
+            if self.output:
+                # Format the content with line numbers for display
+                lines = self.output.splitlines()
+                formatted_lines = []
+                for i, line in enumerate(lines, 1):
+                    formatted_lines.append(f"{i:4d}→ {line}")
+                return '\n'.join(formatted_lines)
             else:
-                return self.output or "File operation completed"
+                return f"Created {self.file_path} with {self.lines_affected} lines"
+        elif self.operation == "update":
+            # For update operations, show the diff output
+            if self.output and "⏺ Update" not in self.output:
+                # Return the diff output without the header
+                return self.output
+            elif self.output:
+                # Extract just the diff part
+                lines = self.output.splitlines()
+                if len(lines) > 2:
+                    return '\n'.join(lines[1:])  # Skip the ⏺ Update line
+            return f"Updated {self.file_path} with {self.lines_affected} changes"
         else:
-            return f"Error: {self.error or 'File operation failed'}"
+            return self.output or "File operation completed"
 
 
 class ReadTool(Tool):
@@ -143,12 +137,7 @@ class ReadTool(Tool):
     ) -> FileToolResult:
         try:
             if not os.path.exists(file_path):
-                return FileToolResult(
-                    status=ToolStatus.ERROR,
-                    error=f"File not found: {file_path}",
-                    file_path=file_path,
-                    operation="read"
-                )
+                raise ToolError(f"File not found: {file_path}")
 
             with open(file_path, 'r', encoding=encoding) as f:
                 lines = f.readlines()
@@ -172,7 +161,6 @@ class ReadTool(Tool):
             formatted_output = '\n'.join(output_lines)
 
             return FileToolResult(
-                status=ToolStatus.SUCCESS,
                 output=formatted_output,
                 file_path=file_path,
                 lines_affected=lines_count,
@@ -185,19 +173,9 @@ class ReadTool(Tool):
             )
 
         except UnicodeDecodeError as e:
-            return FileToolResult(
-                status=ToolStatus.ERROR,
-                error=f"Encoding error reading {file_path}: {str(e)}",
-                file_path=file_path,
-                operation="read"
-            )
+            raise ToolError(f"Encoding error reading {file_path}: {str(e)}")
         except Exception as e:
-            return FileToolResult(
-                status=ToolStatus.ERROR,
-                error=f"Failed to read {file_path}: {str(e)}",
-                file_path=file_path,
-                operation="read"
-            )
+            raise ToolError(f"Failed to read {file_path}: {str(e)}")
 
 
 class WriteTool(Tool):
@@ -277,7 +255,6 @@ class WriteTool(Tool):
             file_size = os.path.getsize(file_path)
 
             return FileToolResult(
-                status=ToolStatus.SUCCESS,
                 output=content,  # Store the actual content
                 file_path=file_path,
                 lines_affected=lines_count,
@@ -291,12 +268,7 @@ class WriteTool(Tool):
             )
 
         except Exception as e:
-            return FileToolResult(
-                status=ToolStatus.ERROR,
-                error=f"Failed to write {file_path}: {str(e)}",
-                file_path=file_path,
-                operation="write"
-            )
+            raise ToolError(f"Failed to write {file_path}: {str(e)}")
 
 
 class UpdateTool(Tool):
@@ -436,12 +408,7 @@ class UpdateTool(Tool):
     ) -> FileToolResult:
         try:
             if not os.path.exists(file_path):
-                return FileToolResult(
-                    status=ToolStatus.ERROR,
-                    error=f"File not found: {file_path}",
-                    file_path=file_path,
-                    operation="update"
-                )
+                raise ToolError(f"File not found: {file_path}")
 
             # Read the current file content
             with open(file_path, 'r', encoding=encoding) as f:
@@ -459,12 +426,7 @@ class UpdateTool(Tool):
                 replacements = 1 if old_content in original_content else 0
 
             if replacements == 0:
-                return FileToolResult(
-                    status=ToolStatus.ERROR,
-                    error=f"Old content not found in {file_path}",
-                    file_path=file_path,
-                    operation="update"
-                )
+                raise ToolError(f"Old content not found in {file_path}")
 
             # Write the updated content
             with open(file_path, 'w', encoding=encoding) as f:
@@ -475,7 +437,6 @@ class UpdateTool(Tool):
             diff_output = self._generate_diff_output(file_path, original_lines, updated_lines)
 
             return FileToolResult(
-                status=ToolStatus.SUCCESS,
                 output=diff_output,
                 file_path=file_path,
                 lines_affected=replacements,
@@ -488,9 +449,4 @@ class UpdateTool(Tool):
             )
 
         except Exception as e:
-            return FileToolResult(
-                status=ToolStatus.ERROR,
-                error=f"Failed to update {file_path}: {str(e)}",
-                file_path=file_path,
-                operation="update"
-            )
+            raise ToolError(f"Failed to update {file_path}: {str(e)}")

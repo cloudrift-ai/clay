@@ -6,7 +6,7 @@ import subprocess
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 import json
-from .base import Tool, ToolResult, ToolStatus
+from .base import Tool, ToolResult, ToolError
 from ..trace import trace_operation
 
 
@@ -33,45 +33,36 @@ class BashToolResult(ToolResult):
 
     def get_summary(self) -> str:
         """Get a one-line summary of the command execution."""
-        if self.status == ToolStatus.SUCCESS:
-            lines_count = len(self.stdout.splitlines()) if self.stdout else 0
-            if self.command and self.command.startswith('ls'):
-                return f"Listed {lines_count} item(s)"
-            elif self.command and (self.command.startswith('cat') or self.command.startswith('head')):
-                return f"Displayed {lines_count} line(s)"
-            elif self.command and self.command.startswith('grep'):
-                return f"Found {lines_count} match(es)"
-            elif self.command and self.command.startswith('find'):
-                return f"Found {lines_count} file(s)"
-            elif self.command and self.command.startswith('git diff'):
-                lines = self.stdout.splitlines() if self.stdout else []
-                added = sum(1 for line in lines if line.startswith('+') and not line.startswith('+++'))
-                removed = sum(1 for line in lines if line.startswith('-') and not line.startswith('---'))
-                return f"{added} addition(s), {removed} deletion(s)"
-            elif self.command and self.command.startswith('git status'):
-                lines = self.stdout.splitlines() if self.stdout else []
-                modified = sum(1 for line in lines if 'modified:' in line)
-                new = sum(1 for line in lines if 'new file:' in line)
-                return f"{modified} modified, {new} new file(s)"
-            elif lines_count > 0:
-                return f"Command completed with {lines_count} line(s) of output"
-            else:
-                return "Command completed successfully"
+        lines_count = len(self.stdout.splitlines()) if self.stdout else 0
+        if self.command and self.command.startswith('ls'):
+            return f"Listed {lines_count} item(s)"
+        elif self.command and (self.command.startswith('cat') or self.command.startswith('head')):
+            return f"Displayed {lines_count} line(s)"
+        elif self.command and self.command.startswith('grep'):
+            return f"Found {lines_count} match(es)"
+        elif self.command and self.command.startswith('find'):
+            return f"Found {lines_count} file(s)"
+        elif self.command and self.command.startswith('git diff'):
+            lines = self.stdout.splitlines() if self.stdout else []
+            added = sum(1 for line in lines if line.startswith('+') and not line.startswith('+++'))
+            removed = sum(1 for line in lines if line.startswith('-') and not line.startswith('---'))
+            return f"{added} addition(s), {removed} deletion(s)"
+        elif self.command and self.command.startswith('git status'):
+            lines = self.stdout.splitlines() if self.stdout else []
+            modified = sum(1 for line in lines if 'modified:' in line)
+            new = sum(1 for line in lines if 'new file:' in line)
+            return f"{modified} modified, {new} new file(s)"
+        elif lines_count > 0:
+            return f"Command completed with {lines_count} line(s) of output"
         else:
-            return f"Command failed with return code {self.return_code}"
+            return "Command completed successfully"
 
     def get_formatted_output(self) -> str:
         """Get formatted output for Claude Code style display."""
-        if self.status == ToolStatus.SUCCESS:
-            if self.stdout:
-                return self.stdout.rstrip()
-            else:
-                return "Success (no output)"
+        if self.stdout:
+            return self.stdout.rstrip()
         else:
-            if self.stderr:
-                return f"Error: {self.stderr.rstrip()}"
-            else:
-                return f"Error: Command failed with return code {self.return_code}"
+            return "Success (no output)"
 
 
 class BashTool(Tool):
@@ -208,15 +199,18 @@ class BashTool(Tool):
                 stdout_str = stdout.decode('utf-8', errors='replace')
                 stderr_str = stderr.decode('utf-8', errors='replace')
 
+                # Check if command failed and throw exception
+                if process.returncode != 0:
+                    error_msg = stderr_str.strip() if stderr_str.strip() else f"Command failed with exit code {process.returncode}"
+                    raise ToolError(error_msg)
+
                 result = BashToolResult(
-                    status=ToolStatus.SUCCESS if process.returncode == 0 else ToolStatus.ERROR,
                     command=command,
                     return_code=process.returncode,
                     stdout=stdout_str,
                     stderr=stderr_str,
                     working_dir=working_dir,
-                    output=stdout_str if stdout_str else stderr_str,
-                    error=stderr_str if process.returncode != 0 else None,
+                    output=stdout_str if stdout_str else "Command completed successfully",
                     metadata={"return_code": process.returncode}
                 )
 
@@ -228,17 +222,7 @@ class BashTool(Tool):
             except asyncio.TimeoutError:
                 process.terminate()
                 await process.wait()
-                return BashToolResult(
-                    status=ToolStatus.ERROR,
-                    command=command,
-                    working_dir=working_dir,
-                    error=f"Command timed out after {timeout} seconds"
-                )
+                raise ToolError(f"Command timed out after {timeout} seconds")
 
         except Exception as e:
-            return BashToolResult(
-                status=ToolStatus.ERROR,
-                command=command,
-                working_dir=working_dir,
-                error=f"Failed to execute command: {str(e)}"
-            )
+            raise ToolError(f"Failed to execute command: {str(e)}")

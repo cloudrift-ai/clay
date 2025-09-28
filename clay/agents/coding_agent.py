@@ -74,9 +74,23 @@ Current plan state:
 {plan.to_json()}
 
 CRITICAL: Review the current plan and update the todo list.
+
+FAILURE HANDLING:
+- ALWAYS check the "status" field of completed steps
+- If ANY completed step has "status": "FAILURE", you MUST:
+  1. Analyze the error_message to understand what went wrong
+  2. Add corrective steps to fix the issue before proceeding
+  3. DO NOT ignore failures - they must be addressed
+- Common failure scenarios:
+  * Syntax errors: Fix the code and retry
+  * Missing files: Create the missing dependencies first
+  * Command timeouts: Use non-interactive commands or adjust approach
+  * Test failures: Debug and fix the failing tests
+
+GENERAL RULES:
 - Keep all remaining planned steps that haven't been completed yet
 - Only add new steps if errors occurred or requirements changed
-- If task is complete, return empty todo list
+- If task is complete AND no failures exist, return empty todo list
 - DO NOT remove planned steps just because some other steps completed
 - Preserve the original step sequence and don't skip planned file creation steps
 
@@ -125,15 +139,16 @@ CORE ENGINEERING PRINCIPLES:
 DEVELOPMENT WORKFLOW:
 1. Understand requirements thoroughly before coding
 2. Read existing code to understand current structure
-3. Design architecture and consider edge cases
-4. Write tests first (TDD approach when applicable)
-5. Create/update files with clean, readable code
-6. Add comprehensive error handling
-7. Document code and APIs appropriately
-8. Run tests and ensure all pass
-9. Perform code quality checks (linting, type checking)
-10. Consider security implications and vulnerabilities
-11. Optimize performance where needed
+3. Check completed steps for "status": "FAILURE" and address any failures FIRST
+4. Design architecture and consider edge cases
+5. Write tests first (TDD approach when applicable)
+6. Create/update files with clean, readable code
+7. Add comprehensive error handling
+8. Document code and APIs appropriately
+9. Run tests and ensure all pass
+10. Perform code quality checks (linting, type checking)
+11. Consider security implications and vulnerabilities
+12. Optimize performance where needed
 
 CRITICAL STEP ORDERING:
 • Steps execute in sequential order (step 1, then step 2, then step 3, etc.)

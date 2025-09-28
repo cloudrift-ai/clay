@@ -8,6 +8,7 @@ import json
 from ..trace import trace_operation
 
 
+# Temporary compatibility - to be removed when all tools are updated
 class ToolStatus(Enum):
     SUCCESS = "success"
     ERROR = "error"
@@ -17,16 +18,12 @@ class ToolStatus(Enum):
 @dataclass
 class ToolResult:
     """Base class for tool results."""
-    status: ToolStatus
     output: Optional[str] = None
-    error: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "status": self.status.value,
             "output": self.output,
-            "error": self.error,
             "metadata": self.metadata
         }
 
@@ -40,22 +37,16 @@ class ToolResult:
         This method can be overridden by specific tool result classes
         to provide more detailed summaries.
         """
-        if self.status == ToolStatus.SUCCESS:
-            if self.output:
-                # For small outputs, show the full content
-                lines = self.output.splitlines()
-                if len(lines) <= 3 and len(self.output) <= 200:
-                    return f"✅ Tool executed successfully:\n{self.output}"
-                else:
-                    # For larger outputs, show a summary
-                    return f"✅ Tool executed successfully ({len(lines)} lines of output)"
+        if self.output:
+            # For small outputs, show the full content
+            lines = self.output.splitlines()
+            if len(lines) <= 3 and len(self.output) <= 200:
+                return f"✅ Tool executed successfully:\n{self.output}"
             else:
-                return "✅ Tool executed successfully"
-        elif self.status == ToolStatus.ERROR:
-            error_msg = self.error or "Unknown error"
-            return f"❌ Tool execution failed: {error_msg}"
-        else:  # BLOCKED
-            return f"🛑 Tool execution blocked: {self.error or 'Reason unknown'}"
+                # For larger outputs, show a summary
+                return f"✅ Tool executed successfully ({len(lines)} lines of output)"
+        else:
+            return "✅ Tool executed successfully"
 
 
 
@@ -185,16 +176,5 @@ class Tool(ABC):
     @trace_operation
     async def run(self, **kwargs) -> ToolResult:
         """Run the tool with validation."""
-        try:
-            self.validate_parameters(kwargs)
-            return await self.execute(**kwargs)
-        except ToolError as e:
-            return ToolResult(
-                status=ToolStatus.ERROR,
-                error=str(e)
-            )
-        except Exception as e:
-            return ToolResult(
-                status=ToolStatus.ERROR,
-                error=f"Unexpected error: {str(e)}"
-            )
+        self.validate_parameters(kwargs)
+        return await self.execute(**kwargs)

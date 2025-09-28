@@ -11,7 +11,6 @@ from ..agents.llm_agent import LLMAgent
 from ..agents.coding_agent import CodingAgent
 from ..runtime import Plan
 from ..llm import completion
-from ..tools.base import ToolStatus
 from ..trace import trace_operation, clear_trace, save_trace_file, set_session_id
 
 
@@ -138,10 +137,7 @@ Selection criteria are automatically derived from each agent's description and c
             output = result.get_formatted_output()
         else:
             # Default formatting for results without custom formatter
-            if result.status == ToolStatus.SUCCESS:
-                output = result.output or "Success"
-            else:
-                output = f"Error: {result.error or 'Unknown error'}"
+            output = result.output or "Success"
 
         # Format and truncate output
         if output:
@@ -266,16 +262,18 @@ Selection criteria are automatically derived from each agent's description and c
 
                 if tool_name in agent_tools:
                     tool = agent_tools[tool_name]
-                    result = await tool.run(**parameters)
+                    try:
+                        result = await tool.run(**parameters)
 
-                    # Print console summary of the tool execution
-                    self._print_tool_execution(tool, tool_name, parameters, result)
+                        # Print console summary of the tool execution
+                        self._print_tool_execution(tool, tool_name, parameters, result)
 
-                    # Move step to completed with result
-                    if result.status == ToolStatus.SUCCESS:
+                        # Move step to completed with successful result
                         plan.complete_next_step(result=result.to_dict())
-                    else:
-                        error_msg = result.error or "Tool execution failed"
+                    except Exception as e:
+                        # Tool execution failed - mark as FAILURE
+                        error_msg = str(e)
+                        print(f"\n❌ Tool execution failed: {error_msg}")
                         plan.complete_next_step(error=error_msg)
                 else:
                     error_msg = f"Tool {tool_name} not found"

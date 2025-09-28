@@ -13,7 +13,8 @@ class Step:
     description: Optional[str] = None
     depends_on: Optional[List[int]] = None  # Indices of steps this depends on
     result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    status: Optional[str] = None  # "SUCCESS", "FAILURE", or None (not executed)
+    error_message: Optional[str] = None
 
     def __post_init__(self):
         if self.depends_on is None:
@@ -27,7 +28,8 @@ class Step:
             "description": self.description,
             "depends_on": self.depends_on,
             "result": self.result,
-            "error": self.error
+            "status": self.status,
+            "error_message": self.error_message
         }
 
     @classmethod
@@ -39,7 +41,8 @@ class Step:
             description=data.get("description"),
             depends_on=data.get("depends_on", []),
             result=data.get("result"),
-            error=data.get("error")
+            status=data.get("status"),
+            error_message=data.get("error_message") or data.get("error")  # Backward compatibility
         )
 
 
@@ -95,7 +98,7 @@ class Plan:
     @property
     def has_failed(self) -> bool:
         """Check if any completed step has failed."""
-        return any(step.error is not None for step in self.completed)
+        return any(step.status == "FAILURE" for step in self.completed)
 
     def complete_next_step(self, result: Dict[str, Any] = None, error: str = None):
         """Move the next todo step to completed with result or error."""
@@ -103,8 +106,10 @@ class Plan:
             step = self.todo.pop(0)
             if result is not None:
                 step.result = result
+                step.status = "SUCCESS"
             if error is not None:
-                step.error = error
+                step.error_message = error
+                step.status = "FAILURE"
             self.completed.append(step)
             return step
         return None

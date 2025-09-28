@@ -1,7 +1,7 @@
 """Console tools for agent communication and user interaction."""
 
 from typing import Dict, Any, Optional
-from .base import Tool, ToolResult, ToolStatus
+from .base import Tool, ToolResult, ToolError
 from ..trace import trace_operation
 
 
@@ -10,7 +10,7 @@ class MessageToolResult(ToolResult):
 
     def get_formatted_output(self) -> str:
         """Get formatted output for Claude Code style display."""
-        if self.status == ToolStatus.SUCCESS and self.output:
+        if self.output:
             # Remove the emoji prefix for cleaner display
             output = self.output
             if output.startswith("💬 "):
@@ -114,8 +114,7 @@ class MessageTool(Tool):
                 formatted_message = f"💬 {message}"
 
             return MessageToolResult(
-                status=ToolStatus.SUCCESS,
-                output=formatted_message,
+                                output=formatted_message,
                 metadata={
                     "category": category,
                     "raw_message": message,
@@ -124,11 +123,7 @@ class MessageTool(Tool):
             )
 
         except Exception as e:
-            return MessageToolResult(
-                status=ToolStatus.ERROR,
-                error=f"Failed to send message: {str(e)}",
-                metadata={"tool_type": "communication"}
-            )
+            raise ToolError(f"Failed to send message: {str(e)}")
 
 
 class UserInputToolResult(ToolResult):
@@ -136,7 +131,7 @@ class UserInputToolResult(ToolResult):
 
     def get_formatted_output(self) -> str:
         """Get formatted output for Claude Code style display."""
-        if self.status == ToolStatus.SUCCESS and self.output:
+        if self.output:
             return f"User response: {self.output}"
         else:
             return f"Error: {self.error or 'Failed to get user input'}"
@@ -228,18 +223,9 @@ class UserInputTool(Tool):
 
             # Validate against choices if provided
             if choices and user_response not in choices:
-                return UserInputToolResult(
-                    status=ToolStatus.ERROR,
-                    error=f"Invalid choice. Please select from: {', '.join(choices)}",
-                    metadata={
-                        "prompt": prompt,
-                        "choices": choices,
-                        "tool_type": "interaction"
-                    }
-                )
+                raise ToolError(f"Invalid choice. Please select from: {', '.join(choices)}")
 
             return UserInputToolResult(
-                status=ToolStatus.SUCCESS,
                 output=user_response,
                 metadata={
                     "prompt": prompt,
@@ -249,14 +235,6 @@ class UserInputTool(Tool):
             )
 
         except KeyboardInterrupt:
-            return UserInputToolResult(
-                status=ToolStatus.ERROR,
-                error="User cancelled input",
-                metadata={"tool_type": "interaction"}
-            )
+            raise ToolError("User cancelled input")
         except Exception as e:
-            return UserInputToolResult(
-                status=ToolStatus.ERROR,
-                error=f"Failed to get user input: {str(e)}",
-                metadata={"tool_type": "interaction"}
-            )
+            raise ToolError(f"Failed to get user input: {str(e)}")
