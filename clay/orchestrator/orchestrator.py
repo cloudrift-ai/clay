@@ -15,12 +15,13 @@ from ..trace import trace_operation, clear_trace, save_trace_file, set_session_i
 class ClayOrchestrator:
     """Orchestrator that coordinates agents and plan execution."""
 
-    def __init__(self, traces_dir: Optional[Path] = None, interactive: bool = False):
+    def __init__(self, traces_dir: Optional[Path] = None, interactive: bool = False, disable_llm: bool = False):
         """Initialize the orchestrator with all available agents.
 
         Args:
             traces_dir: Directory to save traces and plan files. If None, uses _trace/
             interactive: Enable interactive mode with user input prompts during execution
+            disable_llm: Disable LLM calls for testing (skips agent selection and plan review)
         """
         from ..agents.llm_agent import LLMAgent
         from ..agents.coding_agent import CodingAgent
@@ -29,6 +30,7 @@ class ClayOrchestrator:
         self.traces_dir = Path("_trace")
         self.traces_dir.mkdir(exist_ok=True)
         self.interactive = interactive
+        self.disable_llm = disable_llm
 
         # Initialize all available agents
         self.agents = {
@@ -160,11 +162,16 @@ Selection criteria are automatically derived from each agent's description and c
             sys.stdout.flush()
             self._todo_lines_count = 0
 
-    def _print_tool_execution(self, tool: Any, tool_name: str, parameters: Dict[str, Any], result) -> None:
-        """Print console-friendly summary of tool execution in Claude Code format."""
-        # Clear any existing todo list first
-        self._clear_todo_lines()
+    def _clear_tool_output_if_needed(self, lines_count: int) -> None:
+        """Clear tool output lines if ANSI is supported."""
+        if self._supports_ansi and lines_count > 0:
+            for _ in range(lines_count):
+                sys.stdout.write('\033[A')  # Move cursor up one line
+                sys.stdout.write('\033[K')  # Clear line
+            sys.stdout.flush()
 
+    def _print_tool_execution_summary(self, tool: Any, tool_name: str, parameters: Dict[str, Any], result) -> None:
+        """Print console-friendly summary of tool execution in Claude Code format."""
         # Get the tool's formatted display
         tool_call = tool.get_tool_call_display(parameters)
         print(tool_call)
@@ -242,20 +249,22 @@ Selection criteria are automatically derived from each agent's description and c
             print(f"\n⚠️  INCOMPLETE: {len(plan.completed)} completed, {len(plan.todo)} remaining")
 
     @trace_operation
-    async def process_task(self, goal: Optional[str] = None) -> Plan:
+    async def process_task(self, goal: Optional[str] = None, plan: Optional['Plan'] = None) -> 'Plan':
         """Process a task using iterative agent planning and execution.
 
-        If goal is None, starts an interactive REPL mode where user can enter tasks.
+        Args:
+            goal: Task description. If None, starts interactive REPL mode.
+            plan: Pre-built plan to execute. If provided, skips agent planning phase.
 
         The process:
-        1. Agent creates initial plan
+        1. Agent creates initial plan (or use provided plan)
         2. Execute next step from todo list
-        3. Agent reviews plan with completed step and updates todo list
+        3. Agent reviews plan with completed step and updates todo list (unless disabled)
         4. Repeat until todo list is empty
         """
 
         # Handle REPL mode when no goal is provided
-        if goal is None:
+        if goal is None and plan is None:
             return await self._run_repl_mode()
 
         working_dir = Path.cwd()
@@ -271,34 +280,45 @@ Selection criteria are automatically derived from each agent's description and c
             session_id = "clay_session"
             set_session_id(session_id)
 
-            # Create initial plan with UserMessageTool
-            from clay.orchestrator.plan import Step, Plan
-            user_message_step = Step(
-                tool_name="user_message",
-                parameters={"message": goal},
-                description="User's initial request"
-            )
-            # Mark it as already completed since it represents the input
-            user_message_step.status = "SUCCESS"
-            user_message_step.result = {
-                "output": goal,
-                "metadata": {
-                    "message": goal,
-                    "tool_type": "user_context",
-                    "timestamp": datetime.now().isoformat()
+            # Use provided plan or create initial plan with UserMessageTool
+            if plan is None:
+                from clay.orchestrator.plan import Step
+                user_message_step = Step(
+                    tool_name="user_message",
+                    parameters={"message": goal},
+                    description="User's initial request"
+                )
+                # Mark it as already completed since it represents the input
+                user_message_step.status = "SUCCESS"
+                user_message_step.result = {
+                    "output": goal,
+                    "metadata": {
+                        "message": goal,
+                        "tool_type": "user_context",
+                        "timestamp": datetime.now().isoformat()
+                    }
                 }
-            }
 
-            # Create initial plan with UserMessageTool
-            plan = Plan(todo=[], completed=[user_message_step])
+                # Create initial plan with UserMessageTool
+                plan = Plan(todo=[], completed=[user_message_step])
 
-            # Select the best agent for the task
-            selected_agent_name = await self.select_agent(goal)
-            selected_agent = self.agents[selected_agent_name]
+                if not self.disable_llm:
+                    # Select the best agent for the task
+                    selected_agent_name = await self.select_agent(goal)
+                    selected_agent = self.agents[selected_agent_name]
+
+                    # Get initial plan from agent (pass plan with UserMessageTool instead of goal)
+                    plan = await selected_agent.run(plan)
+                else:
+                    # Default to coding agent when LLM is disabled
+                    selected_agent_name = 'coding_agent'
+                    selected_agent = self.agents[selected_agent_name]
+            else:
+                # Use provided plan, default to coding agent
+                selected_agent_name = 'coding_agent'
+                selected_agent = self.agents[selected_agent_name]
+
             agent_tools = self.agent_tools[selected_agent_name]
-
-            # Get initial plan from agent (pass plan with UserMessageTool instead of goal)
-            plan = await selected_agent.run(plan)
 
             # Save initial plan (iteration 0)
             self._save_plan_to_trace_dir(plan, 0)
@@ -324,10 +344,26 @@ Selection criteria are automatically derived from each agent's description and c
                 if tool_name in agent_tools:
                     tool = agent_tools[tool_name]
                     try:
+                        # Clear any existing todo list first
+                        self._clear_todo_lines()
+
+                        # Let tool execute and print freely
                         result = await tool.run(**parameters)
 
-                        # Print console summary of the tool execution
-                        self._print_tool_execution(tool, tool_name, parameters, result)
+                        # Calculate lines that were printed (rough estimate from result output)
+                        lines_printed = 0
+                        if hasattr(result, 'stdout') and result.stdout:
+                            # For tools that capture stdout (like bash), count those lines
+                            lines_printed = len(result.stdout.splitlines())
+                        elif hasattr(result, 'output') and result.output:
+                            # For other tools, estimate from output
+                            lines_printed = len(result.output.splitlines())
+
+                        # Clear the tool's free-form output
+                        self._clear_tool_output_if_needed(lines_printed)
+
+                        # Replace with summary
+                        self._print_tool_execution_summary(tool, tool_name, parameters, result)
 
                         # Move step to completed with successful result
                         plan.complete_next_step(result=result.to_dict())
@@ -344,10 +380,10 @@ Selection criteria are automatically derived from each agent's description and c
                 # Print updated todo list at bottom after tool execution
                 self._print_todo_list_at_bottom(plan)
 
-                # Have agent review the plan and update todo list if needed
+                # Have agent review the plan and update todo list if needed (unless LLM is disabled)
                 # Review if there are remaining todos OR if there are any failures to address
                 should_review = bool(plan.todo) or plan.has_failed
-                if should_review:
+                if should_review and not self.disable_llm:
                     plan = await selected_agent.review_plan(plan)
 
                 # Save plan after each iteration

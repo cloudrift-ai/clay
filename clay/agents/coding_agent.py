@@ -19,7 +19,8 @@ class CodingAgent(Agent):
     """
 
     name = "coding_agent"
-    description = """Senior Software Engineer specializing in high-quality software development.
+    description = """Senior Software Engineer that executes actual file operations, bash commands, and coding tasks.
+    Can list files, create/read/write files, run shell commands, and perform hands-on development work.
     Follows industry best practices including TDD, clean code principles, security-first development,
     proper error handling, comprehensive testing, and maintainable architecture patterns."""
 

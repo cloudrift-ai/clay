@@ -11,7 +11,7 @@ class LLMAgent(Agent):
     """Generic LLM agent for various AI tasks."""
 
     name = "llm_agent"
-    description = "General-purpose conversational AI agent that can answer questions, provide explanations, help with analysis, and engage in natural language discussions on a wide variety of topics including math, science, programming concepts, and general knowledge."
+    description = "General-purpose conversational AI agent that provides information and answers questions. Does NOT execute files, commands, or perform actual coding tasks. Can answer questions, provide explanations, help with analysis, and engage in natural language discussions on a wide variety of topics including math, science, programming concepts, and general knowledge."
     capabilities = [
         "Answer factual questions",
         "Provide explanations and tutorials",
