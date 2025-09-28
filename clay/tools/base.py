@@ -34,6 +34,29 @@ class ToolResult:
         """Serialize the full tool result."""
         return json.dumps(self.to_dict(), indent=2)
 
+    def console_summary(self) -> str:
+        """Get a console-friendly summary of the tool execution.
+
+        This method can be overridden by specific tool result classes
+        to provide more detailed summaries.
+        """
+        if self.status == ToolStatus.SUCCESS:
+            if self.output:
+                # For small outputs, show the full content
+                lines = self.output.splitlines()
+                if len(lines) <= 3 and len(self.output) <= 200:
+                    return f"✅ Tool executed successfully:\n{self.output}"
+                else:
+                    # For larger outputs, show a summary
+                    return f"✅ Tool executed successfully ({len(lines)} lines of output)"
+            else:
+                return "✅ Tool executed successfully"
+        elif self.status == ToolStatus.ERROR:
+            error_msg = self.error or "Unknown error"
+            return f"❌ Tool execution failed: {error_msg}"
+        else:  # BLOCKED
+            return f"🛑 Tool execution blocked: {self.error or 'Reason unknown'}"
+
 
 
 class ToolError(Exception):

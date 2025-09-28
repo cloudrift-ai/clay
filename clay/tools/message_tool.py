@@ -5,6 +5,17 @@ from .base import Tool, ToolResult, ToolStatus
 from ..trace import trace_operation
 
 
+class MessageToolResult(ToolResult):
+    """Specific result class for MessageTool."""
+
+    def console_summary(self) -> str:
+        """Get a console-friendly summary of the message."""
+        if self.status == ToolStatus.SUCCESS and self.output:
+            return self.output  # Messages are already formatted nicely
+        else:
+            return super().console_summary()
+
+
 class MessageTool(Tool):
     """Tool for agents to communicate messages, summaries, or explanations to users."""
 
@@ -50,7 +61,7 @@ class MessageTool(Tool):
         }
 
     @trace_operation
-    async def execute(self, message: str, category: str = "info", **kwargs) -> ToolResult:
+    async def execute(self, message: str, category: str = "info", **kwargs) -> MessageToolResult:
         """Display a message to the user.
 
         Args:
@@ -81,7 +92,7 @@ class MessageTool(Tool):
             else:  # info
                 formatted_message = f"💬 {message}"
 
-            return ToolResult(
+            return MessageToolResult(
                 status=ToolStatus.SUCCESS,
                 output=formatted_message,
                 metadata={
@@ -92,7 +103,7 @@ class MessageTool(Tool):
             )
 
         except Exception as e:
-            return ToolResult(
+            return MessageToolResult(
                 status=ToolStatus.ERROR,
                 error=f"Failed to send message: {str(e)}",
                 metadata={"tool_type": "communication"}

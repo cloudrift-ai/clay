@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import Dict, Any, Optional
 import json
+import sys
+import os
 from datetime import datetime
 
 from ..agents.llm_agent import LLMAgent
@@ -35,6 +37,10 @@ class ClayOrchestrator:
 
         # Set traces directory
         self.traces_dir = traces_dir
+
+        # Terminal state for todo list management
+        self._todo_lines_count = 0
+        self._supports_ansi = self._check_ansi_support()
 
     @trace_operation
     async def select_agent(self, goal: str) -> str:
@@ -104,6 +110,81 @@ Selection criteria are automatically derived from each agent's description and c
             descriptions.append(description)
         return "\n\n".join(descriptions)
 
+    def _check_ansi_support(self) -> bool:
+        """Check if terminal supports ANSI escape sequences."""
+        return hasattr(sys.stdout, 'isatty') and sys.stdout.isatty() and os.getenv('TERM') != 'dumb'
+
+    def _clear_todo_lines(self) -> None:
+        """Clear the previously printed todo list lines."""
+        if self._supports_ansi and self._todo_lines_count > 0:
+            # Move cursor up and clear lines
+            for _ in range(self._todo_lines_count):
+                sys.stdout.write('\033[A')  # Move cursor up one line
+                sys.stdout.write('\033[K')  # Clear line
+            sys.stdout.flush()
+            self._todo_lines_count = 0
+
+    def _print_tool_execution(self, tool_name: str, parameters: Dict[str, Any], result) -> None:
+        """Print console-friendly summary of tool execution."""
+        # Clear any existing todo list first
+        self._clear_todo_lines()
+
+        print(f"🔧 Executing {tool_name} tool...")
+
+        # Print the tool result summary
+        summary = result.console_summary()
+        print(summary)
+
+    def _print_todo_list_at_bottom(self, plan: Plan) -> None:
+        """Print compact todo list that stays at the bottom."""
+        lines = []
+
+        if not plan.todo:
+            lines.append("📋 ✅ All tasks completed!")
+        else:
+            # Show current task and next few
+            current_task = plan.todo[0].description
+            lines.append(f"📋 [{len(plan.todo)} remaining] Current: {current_task}")
+
+            if len(plan.todo) > 1:
+                next_task = plan.todo[1].description
+                lines.append(f"   Next: {next_task}")
+
+            if len(plan.todo) > 2:
+                lines.append(f"   +{len(plan.todo) - 2} more tasks...")
+
+        # Print separator and todo lines
+        lines.insert(0, "-" * 60)
+        lines.append("-" * 60)
+
+        for line in lines:
+            print(line)
+
+        # Track lines for clearing later
+        self._todo_lines_count = len(lines)
+
+    def _print_initial_todo_list(self, plan: Plan) -> None:
+        """Print the initial todo list."""
+        print("\n" + "="*60)
+        print(f"📋 PLANNED TASKS ({len(plan.todo)} total):")
+        print("="*60)
+
+        for i, step in enumerate(plan.todo[:8], 1):  # Show first 8 tasks
+            print(f"  {i}. {step.description}")
+
+        if len(plan.todo) > 8:
+            print(f"  ... and {len(plan.todo) - 8} more tasks")
+
+        print("="*60)
+        print("🚀 Starting execution...\n")
+
+    def _print_completion_status(self, plan: Plan) -> None:
+        """Print final completion status."""
+        if not plan.todo:
+            print(f"\n🎉 SUCCESS: All {len(plan.completed)} tasks completed!")
+        else:
+            print(f"\n⚠️  INCOMPLETE: {len(plan.completed)} completed, {len(plan.todo)} remaining")
+
     @trace_operation
     async def process_task(self, goal: str) -> Plan:
         """Process a task using iterative agent planning and execution.
@@ -139,12 +220,23 @@ Selection criteria are automatically derived from each agent's description and c
             # Get initial plan from agent
             plan = await selected_agent.run(goal)
 
+            # Print initial task info only
+            print(f"\n🎯 Task: {goal}")
+            print(f"🤖 Agent: {selected_agent_name}")
+            print()  # Add blank line before tool executions start
+
             # Save initial plan (iteration 0)
             self._save_plan_to_trace_dir(plan, 0, goal)
 
             # Iterative execution loop
             max_iterations = 50  # Safety limit
             iteration = 0
+
+            # Print initial todo list
+            self._print_initial_todo_list(plan)
+
+            # Print initial compact todo list at bottom
+            self._print_todo_list_at_bottom(plan)
 
             while plan.todo and iteration < max_iterations:
                 iteration += 1
@@ -158,6 +250,9 @@ Selection criteria are automatically derived from each agent's description and c
                     tool = agent_tools[tool_name]
                     result = await tool.run(**parameters)
 
+                    # Print console summary of the tool execution
+                    self._print_tool_execution(tool_name, parameters, result)
+
                     # Move step to completed with result
                     if result.status == ToolStatus.SUCCESS:
                         plan.complete_next_step(result=result.to_dict())
@@ -165,7 +260,12 @@ Selection criteria are automatically derived from each agent's description and c
                         error_msg = result.error or "Tool execution failed"
                         plan.complete_next_step(error=error_msg)
                 else:
-                    plan.complete_next_step(error=f"Tool {tool_name} not found")
+                    error_msg = f"Tool {tool_name} not found"
+                    print(f"\n❌ Tool execution failed: {error_msg}")
+                    plan.complete_next_step(error=error_msg)
+
+                # Print updated todo list at bottom after tool execution
+                self._print_todo_list_at_bottom(plan)
 
                 # Have agent review the plan and update todo list if needed
                 if plan.todo:  # Only review if there are more steps
@@ -192,12 +292,19 @@ Selection criteria are automatically derived from each agent's description and c
                 )
                 plan.todo.append(error_step)
 
+            # Clear any remaining todo list and print final completion status
+            self._clear_todo_lines()
+            self._print_completion_status(plan)
+
             return plan
 
         except Exception as e:
             # Save error trace if traces directory is configured
             if self.traces_dir and session_id:
                 save_trace_file(f"{session_id}_error", self.traces_dir)
+
+            print(f"\n❌ ORCHESTRATOR ERROR: {str(e)}")
+            print("\n🚫 Task failed due to orchestrator error")
 
             error_plan = Plan.create_error_response(
                 error=str(e),
