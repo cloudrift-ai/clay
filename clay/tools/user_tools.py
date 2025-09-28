@@ -204,3 +204,116 @@ class UserMessageTool(Tool):
 
         except Exception as e:
             raise ToolError(f"Failed to process user message: {str(e)}")
+
+
+class UserInputToolResult(ToolResult):
+    """Specific result class for UserInputTool."""
+
+    def get_formatted_output(self) -> str:
+        """Get formatted display for user input."""
+        if self.output:
+            return f"User input: {self.output}"
+        else:
+            return f"Error: {self.error or 'Failed to get user input'}"
+
+
+class UserInputTool(Tool):
+    """Tool for prompting and capturing interactive user input during execution."""
+
+    def __init__(self):
+        super().__init__(
+            name="user_input",
+            description="Prompt the user for input during execution and capture their response",
+            capabilities=[
+                "Prompt user for additional instructions",
+                "Get user clarification during execution",
+                "Capture user decisions or preferences",
+                "Allow user to provide additional context",
+                "Enable interactive communication during task execution"
+            ],
+            use_cases=[
+                "When agent needs clarification from user",
+                "To get user approval before proceeding",
+                "To ask for additional requirements",
+                "To let user guide the next steps",
+                "When encountering ambiguous situations",
+                "To confirm user preferences or decisions"
+            ]
+        )
+
+    def get_tool_call_display(self, parameters: Dict[str, Any]) -> str:
+        """Get formatted display for user input tool invocation."""
+        prompt = parameters.get('prompt', 'Enter input')
+        if len(prompt) > 40:
+            prompt = prompt[:37] + "..."
+        return f"⏺ UserInput({prompt})"
+
+    def get_schema(self) -> Dict[str, Any]:
+        """Get the tool schema."""
+        return {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "The prompt message to show the user",
+                    "default": "Please provide your input:"
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Additional context about why input is needed",
+                    "default": ""
+                }
+            },
+            "required": ["prompt"]
+        }
+
+    @trace_operation
+    async def execute(self, prompt: str = "Please provide your input:", context: str = "", **kwargs) -> UserInputToolResult:
+        """Prompt the user for input and capture their response.
+
+        Args:
+            prompt: The prompt message to show the user
+            context: Additional context about why input is needed
+            **kwargs: Additional parameters (ignored)
+
+        Returns:
+            UserInputToolResult with the user's input
+        """
+        try:
+            # Import here to avoid circular imports
+            import sys
+
+            # Clear any previous output and show the prompt
+            if context:
+                print(f"\n{context}")
+
+            # Display the input prompt
+            print(f"\n{prompt}")
+            print("─" * 100)
+
+            # Get user input
+            try:
+                user_input = input("> ").strip()
+            except KeyboardInterrupt:
+                user_input = ""
+                print("\n[User cancelled input]")
+            except EOFError:
+                user_input = ""
+                print("\n[End of input]")
+
+            print("─" * 100)
+
+            # Return the user's input
+            return UserInputToolResult(
+                output=user_input,
+                metadata={
+                    "prompt": prompt,
+                    "context": context,
+                    "tool_type": "interactive_input",
+                    "timestamp": datetime.now().isoformat(),
+                    "user_cancelled": user_input == "" and context != ""
+                }
+            )
+
+        except Exception as e:
+            raise ToolError(f"Failed to get user input: {str(e)}")

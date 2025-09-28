@@ -15,14 +15,19 @@ from ..trace import trace_operation, clear_trace, save_trace_file, set_session_i
 class ClayOrchestrator:
     """Orchestrator that coordinates agents and plan execution."""
 
-    def __init__(self, traces_dir: Optional[Path] = None):
+    def __init__(self, traces_dir: Optional[Path] = None, interactive: bool = False):
         """Initialize the orchestrator with all available agents.
 
         Args:
             traces_dir: Directory to save traces and plan files. If None, uses current directory's _trace/
+            interactive: Enable interactive mode with user input prompts during execution
         """
         from ..agents.llm_agent import LLMAgent
         from ..agents.coding_agent import CodingAgent
+
+        # Set configuration first
+        self.traces_dir = traces_dir
+        self.interactive = interactive
 
         # Initialize all available agents
         self.agents = {
@@ -35,8 +40,12 @@ class ClayOrchestrator:
         for agent_name, agent in self.agents.items():
             self.agent_tools[agent_name] = agent.tools if hasattr(agent, 'tools') else {}
 
-        # Set traces directory
-        self.traces_dir = traces_dir
+            # Add UserInputTool to agents if in interactive mode
+            if self.interactive and hasattr(agent, 'register_tool'):
+                from ..tools import UserInputTool
+                agent.register_tool(UserInputTool())
+                # Update the tool registry to include the newly registered tool
+                self.agent_tools[agent_name] = agent.tools
 
         # Terminal state for todo list management
         self._todo_lines_count = 0
@@ -109,6 +118,40 @@ Selection criteria are automatically derived from each agent's description and c
     def _check_ansi_support(self) -> bool:
         """Check if terminal supports ANSI escape sequences."""
         return hasattr(sys.stdout, 'isatty') and sys.stdout.isatty() and os.getenv('TERM') != 'dumb'
+
+    async def _run_repl_mode(self) -> Plan:
+        """Run Clay in interactive REPL mode."""
+        try:
+            while True:
+                try:
+                    print()
+                    task = input("❯ ").strip()
+
+                    if task.lower() in ['exit', 'quit', 'q']:
+                        print("Goodbye! 👋")
+                        break
+
+                    if not task:
+                        continue
+
+                    print()  # Add spacing before task execution
+                    # Execute the task using the normal process_task flow
+                    await self.process_task(task)
+
+                except KeyboardInterrupt:
+                    print("\nGoodbye! 👋")
+                    break
+                except EOFError:
+                    print("\nGoodbye! 👋")
+                    break
+
+        except Exception as e:
+            print(f"❌ Error in interactive mode: {e}")
+
+        # Return a simple completion plan for REPL mode
+        from clay.orchestrator.plan import Plan
+        return Plan(todo=[], completed=[])
+
 
     def _clear_todo_lines(self) -> None:
         """Clear the previously printed todo list lines."""
@@ -202,8 +245,10 @@ Selection criteria are automatically derived from each agent's description and c
             print(f"\n⚠️  INCOMPLETE: {len(plan.completed)} completed, {len(plan.todo)} remaining")
 
     @trace_operation
-    async def process_task(self, goal: str) -> Plan:
+    async def process_task(self, goal: Optional[str] = None) -> Plan:
         """Process a task using iterative agent planning and execution.
+
+        If goal is None, starts an interactive REPL mode where user can enter tasks.
 
         The process:
         1. Agent creates initial plan
@@ -211,6 +256,10 @@ Selection criteria are automatically derived from each agent's description and c
         3. Agent reviews plan with completed step and updates todo list
         4. Repeat until todo list is empty
         """
+
+        # Handle REPL mode when no goal is provided
+        if goal is None:
+            return await self._run_repl_mode()
 
         working_dir = Path.cwd()
         if not working_dir.exists():
