@@ -4,6 +4,7 @@ import os
 import json
 import aiohttp
 import asyncio
+import random
 from typing import AsyncIterator, Iterator, Dict, Any, List, Optional
 from ..config import get_config
 from ..trace import trace_operation
@@ -17,7 +18,11 @@ async def completion(
     max_tokens: Optional[int] = None,
     **kwargs
 ) -> AsyncIterator[Dict[str, Any]] | Dict[str, Any]:
-    """Simple completion function using global config."""
+    """Simple completion function using global config.
+
+    Automatically retries server errors (5xx) and connection errors with
+    exponential backoff and jitter. Retries up to 3 times before failing.
+    """
 
     config = get_config()
     provider = config.get_default_provider()
@@ -53,14 +58,52 @@ async def completion(
     payload.update(kwargs)
 
     timeout = aiohttp.ClientTimeout(total=30)  # 30 second timeout
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, headers=headers, json=payload) as response:
-            response.raise_for_status()
 
-            if stream:
-                return _stream_response(response)
+    # Retry configuration
+    max_retries = 3
+    base_delay = 1.0  # Base delay in seconds
+    max_delay = 10.0  # Maximum delay in seconds
+
+    for attempt in range(max_retries + 1):
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, headers=headers, json=payload) as response:
+                    # Handle server errors (5xx) with retries
+                    if response.status >= 500:
+                        if attempt < max_retries:
+                            # Calculate exponential backoff with jitter
+                            delay = min(base_delay * (2 ** attempt), max_delay)
+                            jitter = random.uniform(0, 0.1 * delay)
+                            total_delay = delay + jitter
+
+                            print(f"Server error {response.status}, retrying in {total_delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                            await asyncio.sleep(total_delay)
+                            continue
+                        else:
+                            # Final attempt, raise the error
+                            response.raise_for_status()
+
+                    # Raise for other HTTP errors (4xx, etc.)
+                    response.raise_for_status()
+
+                    if stream:
+                        return _stream_response(response)
+                    else:
+                        return await response.json()
+
+        except aiohttp.ClientError as e:
+            # Handle connection errors
+            if attempt < max_retries:
+                delay = min(base_delay * (2 ** attempt), max_delay)
+                jitter = random.uniform(0, 0.1 * delay)
+                total_delay = delay + jitter
+
+                print(f"Connection error: {e}, retrying in {total_delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(total_delay)
+                continue
             else:
-                return await response.json()
+                # Final attempt, re-raise the error
+                raise
 
 
 def _stream_response(response) -> Iterator[Dict[str, Any]]:
