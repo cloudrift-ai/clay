@@ -487,6 +487,7 @@ Selection criteria are automatically derived from each agent's description and c
         summary = buffer.get_final_summary(use_colors=self.console.supports_ansi)
         if summary:
             print(summary)
+            print()  # Add empty line after tool step display
 
 
     def _print_completion_status(self, plan: Plan) -> None:
