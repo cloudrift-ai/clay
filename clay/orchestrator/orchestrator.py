@@ -27,7 +27,7 @@ class ToolOutputBuffer:
         self.end_time = None
         self.lines = []
         self.total_lines = 0
-        self.max_display_lines = 20
+        self.max_display_lines = 12
         self._lock = threading.Lock()
         self.last_displayed_lines = 0  # Track how many lines were last displayed
         self.is_finished = False  # Track if tool execution is complete
@@ -89,7 +89,7 @@ class ToolOutputBuffer:
                 status_color = "\033[31m" if use_colors else ""  # Red for failure
 
             reset_color = "\033[0m" if use_colors else ""
-            gray_color = "\033[90m" if use_colors else ""  # Gray for output text
+            gray_color = "\033[37m" if use_colors else ""  # Gray for output text
 
             # Header with tool info and stats
             summary_parts.append(f"  ⎿ {status_color}{status}{reset_color} ({self.total_lines} lines, {execution_time:.1f}s)")
@@ -141,7 +141,7 @@ class ToolOutputBuffer:
                 status_color = "\033[31m" if use_colors else ""  # Red
 
             reset_color = "\033[0m" if use_colors else ""
-            gray_color = "\033[90m" if use_colors else ""  # Gray for output
+            gray_color = "\033[37m" if use_colors else ""  # Gray for output
 
             if self.total_lines == 0:
                 return f"  ⎿ {status_color}{status}{reset_color} (no output, {execution_time:.1f}s)"
@@ -153,11 +153,11 @@ class ToolOutputBuffer:
                 return "\n".join(summary_parts)
             else:
                 # Show last 20 lines with summary
-                summary_parts = [f"  ⎿ {status_color}{status}{reset_color} ({self.total_lines} lines, {execution_time:.1f}s) - showing last {min(len(self.lines), self.max_display_lines)}:"]
-                for line in self.lines[-self.max_display_lines:]:
-                    summary_parts.append(f"     {gray_color}{line}{reset_color}")
+                summary_parts = [f"  ⎿ {status_color}{status}{reset_color} ({self.total_lines} lines, {execution_time:.1f}s)"]
                 if self.total_lines > self.max_display_lines:
                     summary_parts.append(f"     {gray_color}... (+{self.total_lines - self.max_display_lines} earlier lines){reset_color}")
+                for line in self.lines[-self.max_display_lines:]:
+                    summary_parts.append(f"     {gray_color}{line}{reset_color}")
                 return "\n".join(summary_parts)
 
 
@@ -391,16 +391,6 @@ Selection criteria are automatically derived from each agent's description and c
         # Track lines for clearing later
         self._todo_lines_count = len(lines)
 
-    def _print_initial_todo_list(self, plan: Plan) -> None:
-        """Print the initial todo list."""
-        print(f"📋 PLANNED TASKS ({len(plan.todo)} total):")
-
-        for i, step in enumerate(plan.todo[:8], 1):  # Show first 8 tasks
-            print(f"  {i}. {step.description}")
-
-        if len(plan.todo) > 8:
-            print(f"  ... and {len(plan.todo) - 8} more tasks")
-
     def _print_completion_status(self, plan: Plan) -> None:
         """Print final completion status."""
         if not plan.todo:
@@ -527,19 +517,13 @@ Selection criteria are automatically derived from each agent's description and c
             agent_tools = self.agent_tools[selected_agent_name]
 
             # Save initial plan (iteration 0)
-            self._save_plan_to_trace_dir(plan, 0)
-
-            # Iterative execution loop
-            max_iterations = 50  # Safety limit
             iteration = 0
-
-            # Print initial todo list
-            self._print_initial_todo_list(plan)
+            self._save_plan_to_trace_dir(plan, 0)
 
             # Print initial compact todo list at bottom
             self._print_todo_list_at_bottom(plan)
 
-            while plan.todo and iteration < max_iterations:
+            while plan.todo:
                 iteration += 1
 
                 # Execute the next step
@@ -652,20 +636,6 @@ Selection criteria are automatically derived from each agent's description and c
 
                 # Save trace after each iteration (overwrites same file)
                 save_trace_file(session_id, self.traces_dir)
-
-            # Check if we hit the iteration limit
-            if iteration >= max_iterations:
-                # Add error message to todo list
-                from clay.orchestrator.plan import Step
-                error_step = Step(
-                    tool_name="message",
-                    parameters={
-                        "message": f"Exceeded maximum iterations ({max_iterations}) while executing plan",
-                        "category": "error"
-                    },
-                    description="Iteration limit exceeded"
-                )
-                plan.todo.append(error_step)
 
             # Clear any remaining todo list and print final completion status
             self._clear_todo_lines()

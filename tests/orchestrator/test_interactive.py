@@ -385,10 +385,10 @@ class TestInteractiveExecution:
         # Analyze the captured output (after restoring stdout)
         full_output = output_capture.buffer
 
-        # Should contain the command output during execution
-        assert "Line 1: This is a test line" in full_output
-        assert "Line 2: This is a test line" in full_output
-        assert "Line 9: This is a test line" in full_output
+        # Should contain the command output during execution (may be in last 20 lines due to new truncation)
+        # Check for some lines that should be visible
+        assert "Line 9: This is a test line" in full_output or "Line 10: This is a test line" in full_output
+        assert "Line 20: This is a test line" in full_output
 
         # Should contain the tool execution summary format
         assert "⏺ Bash(" in full_output
