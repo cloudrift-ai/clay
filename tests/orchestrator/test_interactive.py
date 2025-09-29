@@ -151,9 +151,9 @@ class TestInteractiveExecution:
         assert 'coding_agent' in orchestrator.agents
         assert 'llm_agent' in orchestrator.agents
 
-        # Test ANSI support detection
-        assert hasattr(orchestrator, '_supports_ansi')
-        assert isinstance(orchestrator._supports_ansi, bool)
+        # Test ANSI support detection (now in console)
+        assert hasattr(orchestrator.console, 'supports_ansi')
+        assert isinstance(orchestrator.console.supports_ansi, bool)
 
     @pytest.mark.asyncio
     async def test_output_summarization_behavior(self):

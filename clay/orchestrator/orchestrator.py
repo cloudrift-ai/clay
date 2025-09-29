@@ -17,114 +17,41 @@ from .plan import Plan
 
 
 class InteractiveConsole:
-    """Manages interactive console display with proper state tracking for clearing output."""
+    """Simplified console display with a single print function that handles clearing."""
 
     def __init__(self):
         self.supports_ansi = self._check_ansi_support()
-        self.current_display_lines = 0
-        self._plan_displayed = False
+        self.tracked_lines = 0  # Lines that will be cleared on next display
 
     def _check_ansi_support(self) -> bool:
         """Check if terminal supports ANSI escape sequences."""
         return hasattr(sys.stdout, 'isatty') and sys.stdout.isatty() and os.getenv('TERM') != 'dumb'
 
-    def clear_current_display(self) -> None:
-        """Clear the currently displayed content if ANSI is supported."""
-        if self.supports_ansi and self.current_display_lines > 0:
-            for _ in range(self.current_display_lines):
+    def display(self, content: str = "", track_lines: bool = True) -> None:
+        """Single print function that displays content and optionally tracks lines for clearing.
+
+        Args:
+            content: Content to display (can be multi-line string)
+            track_lines: If True, clears previous tracked content and tracks this content
+        """
+        # Clear previously tracked lines if we're tracking new content
+        if track_lines and self.supports_ansi and self.tracked_lines > 0:
+            for _ in range(self.tracked_lines):
                 sys.stdout.write('\033[A')  # Move cursor up one line
                 sys.stdout.write('\033[K')  # Clear line
             sys.stdout.flush()
-            self.current_display_lines = 0
+            self.tracked_lines = 0
 
-    def display_lines(self, lines: list[str], track_for_clearing: bool = True) -> None:
-        """Display lines and optionally track them for clearing."""
-        if track_for_clearing:
-            self.clear_current_display()
+        # Display the content
+        if content:
+            print(content)
 
-        for line in lines:
-            print(line)
-
-        if track_for_clearing:
-            self.current_display_lines = len(lines)
-
-    def display_plan_summary(self, plan: Plan, interactive: bool = False) -> None:
-        """Display plan summary and prompt, but only once per tool cycle.
-        
-        Shows up to 10 upcoming tasks in the plan.
-        """
-        if not plan.todo or self._plan_displayed:
-            return
-
-        lines = []
-        lines.append("")  # Separator
-
-        # Add plan summary
-        if not plan.todo:
-            lines.append("📋 ✅ All tasks completed!")
-        else:
-            current_task = plan.todo[0].description
-            lines.append(f"📋 [{len(plan.todo)} remaining] Current: {current_task}")
-
-            # Show up to 10 upcoming tasks (including current)
-            max_tasks_to_show = 10
-            tasks_to_show = min(len(plan.todo), max_tasks_to_show)
-            
-            for i in range(1, tasks_to_show):
-                if i < len(plan.todo):
-                    task = plan.todo[i].description
-                    lines.append(f"   {i}. {task}")
-
-            # Add truncation notice if more than max_tasks_to_show items
-            if len(plan.todo) > max_tasks_to_show:
-                remaining = len(plan.todo) - max_tasks_to_show
-                lines.append(f"   ... (+{remaining} more tasks)")
-
-        # Add prompt in interactive mode
-        if interactive and plan.todo:
-            lines.append("")
-            lines.append("❯ Waiting for next action...")
-
-        self.display_lines(lines, track_for_clearing=True)
-        self._plan_displayed = True
-
-    def on_tool_started(self) -> None:
-        """Called when a tool starts executing - clears plan and resets state."""
-        self.clear_current_display()
-        self._plan_displayed = False
-
-    def on_tool_finished(self) -> None:
-        """Called when a tool finishes executing - plan can be shown again."""
-        self._plan_displayed = False
-
-    def display_tool_output(self, buffer: 'ToolOutputBuffer', blink_state: bool = True, get_tool_display_name_func=None) -> None:
-        """Display tool output with blinking indicator and real-time updates."""
-        display_lines = []
-
-        # Tool header with blinking indicator (only blink if ANSI supported)
-        if get_tool_display_name_func:
-            tool_display = get_tool_display_name_func(buffer.tool_name, buffer.parameters)
-        else:
-            tool_display = f"{buffer.tool_name.title()}(...)"
-
-        if self.supports_ansi:
-            yellow = "\033[33m"
-            reset = "\033[0m"
-            if blink_state:
-                display_lines.append(f"{yellow}⏺{reset} {tool_display}")
-            else:
-                display_lines.append(f"  {tool_display}")
-        else:
-            # No blinking without ANSI support
-            display_lines.append(f"⏺ {tool_display}")
-
-        # Tool output with timer
-        summary, _ = buffer.get_real_time_summary(use_colors=self.supports_ansi)
-        summary_lines = summary.split('\n')
-        display_lines.extend(summary_lines)
-
-        # Display with tracking for clearing
-        self.display_lines(display_lines, track_for_clearing=True)
+            # Track lines for future clearing if requested
+            if track_lines:
+                self.tracked_lines = len(content.split('\n'))
+        elif track_lines:
+            # Reset tracking if displaying empty content
+            self.tracked_lines = 0
 
 
 @dataclass
@@ -263,15 +190,24 @@ class ToolOutputBuffer:
                 return f"  ⎿ {status_color}{status}{reset_color} (no output, {execution_time:.1f}s)"
             elif self.total_lines <= self.max_display_lines:
                 # Show all lines if not too many
-                summary_parts = [f"  ⎿ {status_color}{status}{reset_color} ({self.total_lines} lines, {execution_time:.1f}s)"]
+                summary_parts = [
+                    f"  ⎿ {status_color}{status}{reset_color} "
+                    f"({self.total_lines} lines, {execution_time:.1f}s)"
+                ]
                 for line in self.lines:
                     summary_parts.append(f"     {gray_color}{line}{reset_color}")
                 return "\n".join(summary_parts)
             else:
                 # Show last 20 lines with summary
-                summary_parts = [f"  ⎿ {status_color}{status}{reset_color} ({self.total_lines} lines, {execution_time:.1f}s)"]
+                summary_parts = [
+                    f"  ⎿ {status_color}{status}{reset_color} "
+                    f"({self.total_lines} lines, {execution_time:.1f}s)"
+                ]
                 if self.total_lines > self.max_display_lines:
-                    summary_parts.append(f"     {gray_color}... (+{self.total_lines - self.max_display_lines} earlier lines){reset_color}")
+                    hidden_count = self.total_lines - self.max_display_lines
+                    summary_parts.append(
+                        f"     {gray_color}... (+{hidden_count} earlier lines){reset_color}"
+                    )
                 for line in self.lines[-self.max_display_lines:]:
                     summary_parts.append(f"     {gray_color}{line}{reset_color}")
                 return "\n".join(summary_parts)
@@ -339,7 +275,8 @@ class ClayOrchestrator:
 Available agents:
 {agent_descriptions}
 
-Choose the most appropriate agent for the task. Respond with ONLY the agent name from: {available_agents_str}.
+Choose the most appropriate agent for the task.
+Respond with ONLY the agent name from: {available_agents_str}.
 
 Selection criteria are automatically derived from each agent's description and capabilities."""
 
@@ -444,27 +381,67 @@ Selection criteria are automatically derived from each agent's description and c
         else:
             return f"{tool_name.title()}(...)"
 
-    def _get_plan_summary(self, plan: Plan) -> list[str]:
-        """Get compact plan summary lines for display."""
-        lines = []
-
+    def _get_plan_summary_content(self, plan: Plan, interactive: bool = False) -> str:
+        """Get plan summary content as a string for display."""
         if not plan.todo:
-            lines.append("📋 ✅ All tasks completed!")
+            content = "📋 ✅ All tasks completed!"
         else:
-            # Show current task and next few
+            lines = []
+            lines.append("")  # Separator
+
             current_task = plan.todo[0].description
             lines.append(f"📋 [{len(plan.todo)} remaining] Current: {current_task}")
 
-            if len(plan.todo) > 1:
-                next_task = plan.todo[1].description
-                lines.append(f"   Next: {next_task}")
+            # Show up to 10 upcoming tasks (including current)
+            max_tasks_to_show = 10
+            tasks_to_show = min(len(plan.todo), max_tasks_to_show)
 
-            if len(plan.todo) > 2:
-                lines.append(f"   +{len(plan.todo) - 2} more tasks...")
+            for i in range(1, tasks_to_show):
+                if i < len(plan.todo):
+                    task = plan.todo[i].description
+                    lines.append(f"   {i}. {task}")
 
-        return lines
+            # Add truncation notice if more than max_tasks_to_show items
+            if len(plan.todo) > max_tasks_to_show:
+                remaining = len(plan.todo) - max_tasks_to_show
+                lines.append(f"   ... (+{remaining} more tasks)")
 
-    def _print_tool_execution_summary(self, tool: Any, tool_name: str, parameters: dict[str, Any], result, buffer: ToolOutputBuffer) -> None:
+            # Add prompt in interactive mode
+            if interactive and plan.todo:
+                lines.append("")
+                lines.append("❯ Waiting for next action...")
+
+            content = "\n".join(lines)
+
+        return content
+
+    def _get_tool_output_content(self, buffer: 'ToolOutputBuffer', blink_state: bool = True) -> str:
+        """Get tool output content as a string for display."""
+        lines = []
+
+        # Tool header with blinking indicator (only blink if ANSI supported)
+        tool_display = self._get_tool_display_name(buffer.tool_name, buffer.parameters)
+
+        if self.console.supports_ansi:
+            yellow = "\033[33m"
+            reset = "\033[0m"
+            if blink_state:
+                lines.append(f"{yellow}⏺{reset} {tool_display}")
+            else:
+                lines.append(f"  {tool_display}")
+        else:
+            # No blinking without ANSI support
+            lines.append(f"⏺ {tool_display}")
+
+        # Tool output with timer
+        summary, _ = buffer.get_real_time_summary(use_colors=self.console.supports_ansi)
+        lines.append(summary)
+
+        return "\n".join(lines)
+
+    def _print_tool_execution_summary(
+        self, tool: Any, tool_name: str, parameters: dict[str, Any], result, buffer
+    ) -> None:
         """Print console-friendly summary of tool execution in Claude Code format."""
         # Get the tool's formatted display with colored indicator
         tool_display = tool.get_tool_call_display(parameters)
@@ -493,9 +470,14 @@ Selection criteria are automatically derived from each agent's description and c
     def _print_completion_status(self, plan: Plan) -> None:
         """Print final completion status."""
         if not plan.todo:
-            print(f"\n🎉 SUCCESS: All {len(plan.completed)} tasks completed!")
+            success_msg = f"\n🎉 SUCCESS: All {len(plan.completed)} tasks completed!"
+            self.console.display(success_msg, track_lines=False)
         else:
-            print(f"\n⚠️  INCOMPLETE: {len(plan.completed)} completed, {len(plan.todo)} remaining")
+            incomplete_msg = (
+                f"\n⚠️  INCOMPLETE: {len(plan.completed)} completed, "
+                f"{len(plan.todo)} remaining"
+            )
+            self.console.display(incomplete_msg, track_lines=False)
 
 
     async def _monitor_tool_output(self, buffer: ToolOutputBuffer) -> None:
@@ -512,24 +494,23 @@ Selection criteria are automatically derived from each agent's description and c
                 # 1. We support ANSI (for in-place updates)
                 # 2. OR there's new output to show
                 if self.console.supports_ansi or buffer.has_new_output():
-                    # Use console method to display tool output with blinking
-                    self.console.display_tool_output(
-                        buffer,
-                        blink_state=blink_state,
-                        get_tool_display_name_func=self._get_tool_display_name
-                    )
+                    # Get tool output content and display with tracking
+                    tool_content = self._get_tool_output_content(buffer, blink_state)
+                    self.console.display(tool_content)
                     buffer.mark_displayed()
 
             except asyncio.CancelledError:
-                # Clear display when cancelled
-                self.console.clear_current_display()
+                # Clear display when cancelled by displaying empty content
+                self.console.display("", track_lines=True)
                 break
             except Exception:
                 # Ignore errors to avoid breaking tool execution
                 pass
 
     @trace_operation
-    async def process_task(self, goal: Optional[str] = None, plan: Optional['Plan'] = None) -> 'Plan':
+    async def process_task(
+        self, goal: Optional[str] = None, plan: Optional['Plan'] = None
+    ) -> 'Plan':
         """Process a task using iterative agent planning and execution.
 
         Args:
@@ -607,7 +588,8 @@ Selection criteria are automatically derived from each agent's description and c
             self._save_plan_to_trace_dir(plan, 0)
 
             # Display initial plan summary
-            self.console.display_plan_summary(plan, self.interactive)
+            plan_content = self._get_plan_summary_content(plan, self.interactive)
+            self.console.display(plan_content)
 
             while plan.todo:
                 iteration += 1
@@ -621,9 +603,6 @@ Selection criteria are automatically derived from each agent's description and c
                     tool = agent_tools[tool_name]
                     monitor_task = None  # Initialize for proper cleanup
                     try:
-                        # Notify console that tool is starting
-                        self.console.on_tool_started()
-
                         # Create output buffer for this tool execution
                         buffer = ToolOutputBuffer(tool_name, parameters)
                         self._current_tool_buffer = buffer
@@ -632,8 +611,9 @@ Selection criteria are automatically derived from each agent's description and c
                         monitor_task = asyncio.create_task(self._monitor_tool_output(buffer))
 
                         try:
-                            # Create callback for real-time output (bash tool will use it, others will ignore it)
-                            def output_callback(line: str):
+                            # Create callback for real-time output
+                            # (bash tool will use it, others will ignore it)
+                            def output_callback(line: str, buffer=buffer):
                                 buffer.add_output(line)
 
                             # Execute the tool with potential streaming support
@@ -664,14 +644,13 @@ Selection criteria are automatically derived from each agent's description and c
                                 pass
 
                             # Show final buffered summary
-                            self._print_tool_execution_summary(tool, tool_name, parameters, result, buffer)
+                            self._print_tool_execution_summary(
+                                tool, tool_name, parameters, result, buffer
+                            )
 
                             # Move step to completed with successful result
                             plan.complete_next_step(result=result.to_dict())
                             self._current_tool_buffer = None
-
-                            # Notify console that tool finished
-                            self.console.on_tool_finished()
 
                         except Exception as tool_error:
                             # Cancel monitoring task
@@ -699,23 +678,25 @@ Selection criteria are automatically derived from each agent's description and c
                                     pass
 
                             # Show final summary with failure status
-                            self._print_tool_execution_summary(tool, tool_name, parameters, None, self._current_tool_buffer)
+                            self._print_tool_execution_summary(
+                                tool, tool_name, parameters, None, self._current_tool_buffer
+                            )
                             self._current_tool_buffer = None
                         else:
                             # Fallback if no buffer
-                            print(f"\n❌ Tool execution failed: {error_msg}")
+                            error_msg_display = f"\n❌ Tool execution failed: {error_msg}"
+                            self.console.display(error_msg_display, track_lines=False)
 
                         plan.complete_next_step(error=error_msg)
-
-                        # Notify console that tool finished (even with error)
-                        self.console.on_tool_finished()
                 else:
                     error_msg = f"Tool {tool_name} not found"
-                    print(f"\n❌ Tool execution failed: {error_msg}")
+                    tool_not_found_msg = f"\n❌ Tool execution failed: {error_msg}"
+                    self.console.display(tool_not_found_msg, track_lines=False)
                     plan.complete_next_step(error=error_msg)
 
-                # Display plan summary after tool execution (only if not already shown)
-                self.console.display_plan_summary(plan, self.interactive)
+                # Display plan summary after tool execution
+                plan_content = self._get_plan_summary_content(plan, self.interactive)
+                self.console.display(plan_content)
 
                 # Have agent review the plan and update todo list if needed (unless LLM is disabled)
                 # Review if there are remaining todos OR if there are any failures to address
@@ -738,8 +719,10 @@ Selection criteria are automatically derived from each agent's description and c
             # Save error trace
             save_trace_file(f"{session_id}_error", self.traces_dir)
 
-            print(f"\n❌ ORCHESTRATOR ERROR: {str(e)}")
-            print("\n🚫 Task failed due to orchestrator error")
+            orchestrator_error_msg = f"\n❌ ORCHESTRATOR ERROR: {str(e)}"
+            self.console.display(orchestrator_error_msg, track_lines=False)
+            task_failed_msg = "\n🚫 Task failed due to orchestrator error"
+            self.console.display(task_failed_msg, track_lines=False)
 
             # Get task description from goal or use generic fallback
             task_desc = goal[:50] if len(goal) <= 50 else f"{goal[:47]}..."
