@@ -49,7 +49,10 @@ class InteractiveConsole:
             self.current_display_lines = len(lines)
 
     def display_plan_summary(self, plan: Plan, interactive: bool = False) -> None:
-        """Display plan summary and prompt, but only once per tool cycle."""
+        """Display plan summary and prompt, but only once per tool cycle.
+        
+        Shows up to 10 upcoming tasks in the plan.
+        """
         if not plan.todo or self._plan_displayed:
             return
 
@@ -63,12 +66,19 @@ class InteractiveConsole:
             current_task = plan.todo[0].description
             lines.append(f"📋 [{len(plan.todo)} remaining] Current: {current_task}")
 
-            if len(plan.todo) > 1:
-                next_task = plan.todo[1].description
-                lines.append(f"   Next: {next_task}")
+            # Show up to 10 upcoming tasks (including current)
+            max_tasks_to_show = 10
+            tasks_to_show = min(len(plan.todo), max_tasks_to_show)
+            
+            for i in range(1, tasks_to_show):
+                if i < len(plan.todo):
+                    task = plan.todo[i].description
+                    lines.append(f"   {i}. {task}")
 
-            if len(plan.todo) > 2:
-                lines.append(f"   +{len(plan.todo) - 2} more tasks...")
+            # Add truncation notice if more than max_tasks_to_show items
+            if len(plan.todo) > max_tasks_to_show:
+                remaining = len(plan.todo) - max_tasks_to_show
+                lines.append(f"   ... (+{remaining} more tasks)")
 
         # Add prompt in interactive mode
         if interactive and plan.todo:
