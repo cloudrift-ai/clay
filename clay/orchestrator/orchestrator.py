@@ -5,11 +5,160 @@ from typing import Dict, Any, Optional
 import json
 import sys
 import os
+import time
+import threading
+import asyncio
 from datetime import datetime
+from dataclasses import dataclass
 
 from .plan import Plan
 from ..llm import completion
 from ..trace import trace_operation, clear_trace, save_trace_file, set_session_id
+
+
+@dataclass
+class ToolOutputBuffer:
+    """Buffer for capturing and summarizing tool output in real-time."""
+
+    def __init__(self, tool_name: str, parameters: Dict[str, Any]):
+        self.tool_name = tool_name
+        self.parameters = parameters
+        self.start_time = time.time()
+        self.end_time = None
+        self.lines = []
+        self.total_lines = 0
+        self.max_display_lines = 20
+        self._lock = threading.Lock()
+        self.last_displayed_lines = 0  # Track how many lines were last displayed
+        self.is_finished = False  # Track if tool execution is complete
+        self.is_success = None  # Track success/failure state
+
+    def add_output(self, text: str) -> None:
+        """Add output text to the buffer."""
+        if not text:
+            return
+
+        with self._lock:
+            new_lines = text.splitlines()
+            self.lines.extend(new_lines)
+            self.total_lines += len(new_lines)
+
+            # Keep only the last max_display_lines for real-time display
+            if len(self.lines) > self.max_display_lines:
+                self.lines = self.lines[-self.max_display_lines:]
+
+    def finish(self, success: bool = True) -> None:
+        """Mark the tool execution as finished.
+
+        Args:
+            success: Whether the tool execution was successful
+        """
+        with self._lock:
+            self.end_time = time.time()
+            self.is_finished = True
+            self.is_success = success
+
+    def get_execution_time(self) -> float:
+        """Get execution time in seconds."""
+        end_time = self.end_time if self.end_time else time.time()
+        return end_time - self.start_time
+
+    def get_real_time_summary(self, use_colors: bool = True) -> tuple[str, int]:
+        """Get real-time summary showing last 20 lines, total count, and execution time.
+
+        Args:
+            use_colors: Whether to use ANSI color codes
+
+        Returns:
+            tuple[str, int]: (summary_text, lines_count_in_summary)
+        """
+        with self._lock:
+            execution_time = self.get_execution_time()
+
+            summary_parts = []
+
+            # Determine status and colors
+            if not self.is_finished:
+                status = "Running"
+                status_color = "\033[33m" if use_colors else ""  # Yellow for running
+            elif self.is_success:
+                status = "Success"
+                status_color = "\033[32m" if use_colors else ""  # Green for success
+            else:
+                status = "Failed"
+                status_color = "\033[31m" if use_colors else ""  # Red for failure
+
+            reset_color = "\033[0m" if use_colors else ""
+            gray_color = "\033[90m" if use_colors else ""  # Gray for output text
+
+            # Header with tool info and stats
+            summary_parts.append(f"  ⎿ {status_color}{status}{reset_color} ({self.total_lines} lines, {execution_time:.1f}s)")
+
+            # Show last lines (up to max_display_lines) in gray
+            if self.lines:
+                display_lines = self.lines[-self.max_display_lines:]
+                for line in display_lines:
+                    summary_parts.append(f"     {gray_color}{line}{reset_color}")
+
+                # If there are more lines than displayed, show indicator
+                if self.total_lines > len(self.lines):
+                    hidden_lines = self.total_lines - len(self.lines)
+                    summary_parts.append(f"     {gray_color}... (+{hidden_lines} earlier lines){reset_color}")
+                    lines_in_summary = len(summary_parts)
+                else:
+                    lines_in_summary = len(summary_parts)
+            else:
+                summary_parts.append(f"     {gray_color}(no output yet){reset_color}")
+                lines_in_summary = len(summary_parts)
+
+            return "\n".join(summary_parts), lines_in_summary
+
+    def has_new_output(self) -> bool:
+        """Check if there's new output since last display."""
+        with self._lock:
+            return self.total_lines > self.last_displayed_lines or self.is_finished
+
+    def mark_displayed(self) -> None:
+        """Mark current output as displayed."""
+        with self._lock:
+            self.last_displayed_lines = self.total_lines
+
+    def get_final_summary(self, use_colors: bool = True) -> str:
+        """Get final summary for completed tool execution.
+
+        Args:
+            use_colors: Whether to use ANSI color codes
+        """
+        with self._lock:
+            execution_time = self.get_execution_time()
+
+            # Determine colors based on success/failure
+            if self.is_success:
+                status = "Success"
+                status_color = "\033[32m" if use_colors else ""  # Green
+            else:
+                status = "Failed"
+                status_color = "\033[31m" if use_colors else ""  # Red
+
+            reset_color = "\033[0m" if use_colors else ""
+            gray_color = "\033[90m" if use_colors else ""  # Gray for output
+
+            if self.total_lines == 0:
+                return f"  ⎿ {status_color}{status}{reset_color} (no output, {execution_time:.1f}s)"
+            elif self.total_lines <= self.max_display_lines:
+                # Show all lines if not too many
+                summary_parts = [f"  ⎿ {status_color}{status}{reset_color} ({self.total_lines} lines, {execution_time:.1f}s)"]
+                for line in self.lines:
+                    summary_parts.append(f"     {gray_color}{line}{reset_color}")
+                return "\n".join(summary_parts)
+            else:
+                # Show last 20 lines with summary
+                summary_parts = [f"  ⎿ {status_color}{status}{reset_color} ({self.total_lines} lines, {execution_time:.1f}s) - showing last {min(len(self.lines), self.max_display_lines)}:"]
+                for line in self.lines[-self.max_display_lines:]:
+                    summary_parts.append(f"     {gray_color}{line}{reset_color}")
+                if self.total_lines > self.max_display_lines:
+                    summary_parts.append(f"     {gray_color}... (+{self.total_lines - self.max_display_lines} earlier lines){reset_color}")
+                return "\n".join(summary_parts)
 
 
 class ClayOrchestrator:
@@ -53,6 +202,10 @@ class ClayOrchestrator:
         # Terminal state for todo list management
         self._todo_lines_count = 0
         self._supports_ansi = self._check_ansi_support()
+
+        # Real-time output tracking
+        self._current_tool_buffer = None
+        self._output_lock = threading.Lock()
 
     @trace_operation
     async def select_agent(self, goal: str) -> str:
@@ -170,38 +323,45 @@ Selection criteria are automatically derived from each agent's description and c
                 sys.stdout.write('\033[K')  # Clear line
             sys.stdout.flush()
 
-    def _print_tool_execution_summary(self, tool: Any, tool_name: str, parameters: Dict[str, Any], result) -> None:
-        """Print console-friendly summary of tool execution in Claude Code format."""
-        # Get the tool's formatted display
-        tool_call = tool.get_tool_call_display(parameters)
-        print(tool_call)
-
-        # Print the result summary with proper formatting
-        if hasattr(result, 'get_formatted_output'):
-            output = result.get_formatted_output()
+    def _get_tool_display_name(self, tool_name: str, parameters: Dict[str, Any]) -> str:
+        """Get formatted tool display name."""
+        if tool_name == "bash":
+            command = parameters.get('command', '')
+            if len(command) > 60:
+                command = command[:57] + "..."
+            return f"Bash({command})"
+        elif tool_name == "write":
+            file_path = parameters.get('file_path', '')
+            return f"Write({file_path})"
+        elif tool_name == "read":
+            file_path = parameters.get('file_path', '')
+            return f"Read({file_path})"
         else:
-            # Default formatting for results without custom formatter
-            output = result.output or "Success"
+            return f"{tool_name.title()}(...)"
 
-        # Format and truncate output
-        if output:
-            lines = output.splitlines()
-            if len(lines) > 10:
-                # Show first 9 lines and indicate more
-                formatted_lines = lines[:9]
-                remaining = len(lines) - 9
-                formatted_lines.append(f"… +{remaining} lines (ctrl+o to see all)")
-                output = '\n'.join(formatted_lines)
+    def _print_tool_execution_summary(self, tool: Any, tool_name: str, parameters: Dict[str, Any], result, buffer: ToolOutputBuffer) -> None:
+        """Print console-friendly summary of tool execution in Claude Code format."""
+        # Get the tool's formatted display with colored indicator
+        tool_display = tool.get_tool_call_display(parameters)
 
-            # Indent output lines
-            indented_output = '\n'.join(f"  {line}" if i == 0 else f"     {line}"
-                                       for i, line in enumerate(output.splitlines()))
+        # Add colored indicator based on success/failure
+        if self._supports_ansi:
+            if buffer.is_success:
+                # Green checkmark for success
+                indicator = "\033[32m✓\033[0m"
+            else:
+                # Red X for failure
+                indicator = "\033[31m✗\033[0m"
+            # Replace the default indicator with colored one
+            if tool_display.startswith("⏺"):
+                tool_display = indicator + tool_display[1:]
 
-            # Add the ⎿ character for the first line
-            if indented_output:
-                indented_output = "  ⎿" + indented_output[2:]
+        print(tool_display)
 
-            print(indented_output)
+        # Print the buffered summary with colors
+        summary = buffer.get_final_summary(use_colors=self._supports_ansi)
+        if summary:
+            print(summary)
 
     def _print_todo_list_at_bottom(self, plan: Plan) -> None:
         """Print compact todo list that stays at the bottom."""
@@ -247,6 +407,52 @@ Selection criteria are automatically derived from each agent's description and c
             print(f"\n🎉 SUCCESS: All {len(plan.completed)} tasks completed!")
         else:
             print(f"\n⚠️  INCOMPLETE: {len(plan.completed)} completed, {len(plan.todo)} remaining")
+
+    async def _monitor_tool_output(self, buffer: ToolOutputBuffer) -> None:
+        """Monitor tool output buffer and display real-time updates."""
+        last_summary_lines = 0
+        blink_state = True
+        iteration = 0
+
+        while not buffer.is_finished:
+            try:
+                await asyncio.sleep(0.5)  # Check every 500ms
+                iteration += 1
+                blink_state = iteration % 2 == 0  # Toggle every iteration
+
+                # Always update to show blinking indicator or new output
+                if buffer.has_new_output() or True:  # Always refresh for blinking
+                    # Clear previous summary output
+                    if last_summary_lines > 0 and self._supports_ansi:
+                        self._clear_tool_output_if_needed(last_summary_lines)
+
+                    # Display tool execution header with blinking indicator
+                    tool_display = self._get_tool_display_name(buffer.tool_name, buffer.parameters)
+
+                    # Use yellow color for running indicator
+                    yellow = "\033[33m" if self._supports_ansi else ""
+                    reset = "\033[0m" if self._supports_ansi else ""
+
+                    if blink_state:
+                        print(f"{yellow}⏺{reset} {tool_display}")
+                    else:
+                        print(f"  {tool_display}")
+
+                    # Get and display new summary with colors
+                    summary, lines_count = buffer.get_real_time_summary(use_colors=self._supports_ansi)
+                    print(summary)
+
+                    last_summary_lines = lines_count + 1  # +1 for header line
+                    buffer.mark_displayed()
+
+            except asyncio.CancelledError:
+                # Clear any displayed output before exiting
+                if last_summary_lines > 0 and self._supports_ansi:
+                    self._clear_tool_output_if_needed(last_summary_lines)
+                break
+            except Exception:
+                # Ignore errors in monitoring to avoid breaking tool execution
+                pass
 
     @trace_operation
     async def process_task(self, goal: Optional[str] = None, plan: Optional['Plan'] = None) -> 'Plan':
@@ -343,34 +549,89 @@ Selection criteria are automatically derived from each agent's description and c
 
                 if tool_name in agent_tools:
                     tool = agent_tools[tool_name]
+                    monitor_task = None  # Initialize for proper cleanup
                     try:
                         # Clear any existing todo list first
                         self._clear_todo_lines()
 
-                        # Let tool execute and print freely
-                        result = await tool.run(**parameters)
+                        # Create output buffer for this tool execution
+                        buffer = ToolOutputBuffer(tool_name, parameters)
+                        self._current_tool_buffer = buffer
 
-                        # Calculate lines that were printed (rough estimate from result output)
-                        lines_printed = 0
-                        if hasattr(result, 'stdout') and result.stdout:
-                            # For tools that capture stdout (like bash), count those lines
-                            lines_printed = len(result.stdout.splitlines())
-                        elif hasattr(result, 'output') and result.output:
-                            # For other tools, estimate from output
-                            lines_printed = len(result.output.splitlines())
+                        # Start real-time output monitoring task
+                        monitor_task = asyncio.create_task(self._monitor_tool_output(buffer))
 
-                        # Clear the tool's free-form output
-                        self._clear_tool_output_if_needed(lines_printed)
+                        try:
+                            # Create callback for real-time output (bash tool will use it, others will ignore it)
+                            def output_callback(line: str):
+                                buffer.add_output(line)
 
-                        # Replace with summary
-                        self._print_tool_execution_summary(tool, tool_name, parameters, result)
+                            # Execute the tool with potential streaming support
+                            result = await tool.run(
+                                output_callback=output_callback,
+                                **parameters
+                            )
 
-                        # Move step to completed with successful result
-                        plan.complete_next_step(result=result.to_dict())
+                            # For tools that don't support streaming, capture output from result
+                            if tool_name != "bash":
+                                tool_output = ""
+                                if hasattr(result, 'stdout') and result.stdout:
+                                    tool_output = result.stdout
+                                elif hasattr(result, 'output') and result.output:
+                                    tool_output = result.output
+
+                                # Add output to buffer
+                                if tool_output:
+                                    buffer.add_output(tool_output)
+
+                            buffer.finish(success=True)
+
+                            # Cancel monitoring task and wait for it to complete
+                            monitor_task.cancel()
+                            try:
+                                await monitor_task
+                            except asyncio.CancelledError:
+                                pass
+
+                            # Show final buffered summary
+                            self._print_tool_execution_summary(tool, tool_name, parameters, result, buffer)
+
+                            # Move step to completed with successful result
+                            plan.complete_next_step(result=result.to_dict())
+                            self._current_tool_buffer = None
+
+                        except Exception as tool_error:
+                            # Cancel monitoring task
+                            monitor_task.cancel()
+                            try:
+                                await monitor_task
+                            except asyncio.CancelledError:
+                                pass
+                            raise tool_error
+
                     except Exception as e:
                         # Tool execution failed - mark as FAILURE
                         error_msg = str(e)
-                        print(f"\n❌ Tool execution failed: {error_msg}")
+
+                        # Mark buffer as failed if it exists
+                        if self._current_tool_buffer:
+                            self._current_tool_buffer.finish(success=False)
+
+                            # Cancel monitoring task if it's running
+                            if monitor_task:
+                                monitor_task.cancel()
+                                try:
+                                    await monitor_task
+                                except asyncio.CancelledError:
+                                    pass
+
+                            # Show final summary with failure status
+                            self._print_tool_execution_summary(tool, tool_name, parameters, None, self._current_tool_buffer)
+                            self._current_tool_buffer = None
+                        else:
+                            # Fallback if no buffer
+                            print(f"\n❌ Tool execution failed: {error_msg}")
+
                         plan.complete_next_step(error=error_msg)
                 else:
                     error_msg = f"Tool {tool_name} not found"

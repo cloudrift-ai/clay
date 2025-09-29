@@ -67,7 +67,12 @@ class Tool(ABC):
 
     @abstractmethod
     async def execute(self, **kwargs) -> ToolResult:
-        """Execute the tool with given parameters."""
+        """Execute the tool with given parameters.
+
+        Args:
+            **kwargs: Tool parameters including optional output_callback for real-time streaming
+            output_callback: Optional callable for real-time output streaming
+        """
         pass
 
     @abstractmethod
@@ -175,6 +180,21 @@ class Tool(ABC):
 
     @trace_operation
     async def run(self, **kwargs) -> ToolResult:
-        """Run the tool with validation."""
+        """Run the tool with validation.
+
+        Args:
+            **kwargs: Tool parameters including optional output_callback for real-time streaming
+        """
+        # Extract output_callback if present (internal parameter)
+        output_callback = kwargs.pop('output_callback', None)
+
         self.validate_parameters(kwargs)
+
+        # Only pass output_callback to tools that support it
+        # Check if the execute method accepts output_callback parameter
+        import inspect
+        execute_sig = inspect.signature(self.execute)
+        if 'output_callback' in execute_sig.parameters and output_callback:
+            kwargs['output_callback'] = output_callback
+
         return await self.execute(**kwargs)

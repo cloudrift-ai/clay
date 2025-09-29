@@ -176,7 +176,8 @@ class BashTool(Tool):
         self,
         command: str,
         timeout: Optional[int] = None,
-        working_dir: Optional[str] = None
+        working_dir: Optional[str] = None,
+        output_callback: Optional[callable] = None
     ) -> BashToolResult:
         timeout = timeout or self.default_timeout
         working_dir = working_dir or os.getcwd()
@@ -191,13 +192,43 @@ class BashTool(Tool):
             )
 
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=timeout
-                )
+                if output_callback:
+                    # Stream output in real-time with callback
+                    stdout_parts = []
+                    stderr_parts = []
 
-                stdout_str = stdout.decode('utf-8', errors='replace')
-                stderr_str = stderr.decode('utf-8', errors='replace')
+                    async def read_stream(stream, parts_list, callback):
+                        while True:
+                            line = await stream.readline()
+                            if not line:
+                                break
+                            line_str = line.decode('utf-8', errors='replace')
+                            parts_list.append(line_str)
+                            callback(line_str)
+
+                    # Read stdout and stderr concurrently
+                    await asyncio.wait_for(
+                        asyncio.gather(
+                            read_stream(process.stdout, stdout_parts, output_callback),
+                            read_stream(process.stderr, stderr_parts, lambda x: None)  # Don't callback stderr
+                        ),
+                        timeout=timeout
+                    )
+
+                    # Wait for process to complete
+                    await process.wait()
+
+                    stdout_str = ''.join(stdout_parts)
+                    stderr_str = ''.join(stderr_parts)
+                else:
+                    # Original non-streaming behavior
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=timeout
+                    )
+
+                    stdout_str = stdout.decode('utf-8', errors='replace')
+                    stderr_str = stderr.decode('utf-8', errors='replace')
 
                 # Check if command failed and throw exception
                 if process.returncode != 0:
