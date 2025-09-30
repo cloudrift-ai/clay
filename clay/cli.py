@@ -47,9 +47,9 @@ Examples:
 
     # Create plan from task goal if provided, otherwise run interactive mode
     if interactive:
-        await orchestrator.process_task_interactive(plan, session_id="session")
+        await orchestrator.process_task_interactive(plan)
     else:
-        await orchestrator.process_task(plan, session_id="session")
+        await orchestrator.process_task(plan)
 
 
 def start():

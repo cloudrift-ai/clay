@@ -241,20 +241,8 @@ class ClayOrchestrator:
         # Initialize all available agents
         self.agents = {
             'llm_agent': LLMAgent(),
-            'coding_agent': CodingAgent()
+            'coding_agent': CodingAgent(interactive=interactive),
         }
-
-        # Create tool registries for each agent
-        self.agent_tools = {}
-        for agent_name, agent in self.agents.items():
-            self.agent_tools[agent_name] = agent.tools if hasattr(agent, 'tools') else {}
-
-            # Add UserInputTool to agents if in interactive mode
-            if self.interactive and hasattr(agent, 'register_tool'):
-                from ..tools import UserInputTool
-                agent.register_tool(UserInputTool())
-                # Update the tool registry to include the newly registered tool
-                self.agent_tools[agent_name] = agent.tools
 
         # Real-time output tracking
         self._current_tool_buffer = None
@@ -501,12 +489,11 @@ Selection criteria are automatically derived from each agent's description and c
                 pass
 
     @trace_operation
-    async def process_task(self, plan: 'Plan', session_id: str = "clay_session") -> 'Plan':
+    async def process_task(self, plan: 'Plan') -> 'Plan':
         """Process a task using iterative agent planning and execution.
 
         Args:
             plan: Plan to execute. Create using create_plan_from_goal() if starting from a goal.
-            session_id: Session identifier for tracing (default: "clay_session")
 
         The process:
         1. Execute next step from todo list
@@ -517,7 +504,7 @@ Selection criteria are automatically derived from each agent's description and c
         iteration = 0
         while plan.todo:
             self._save_plan_to_trace_dir(plan, iteration)
-            plan = await self._execute_next_step(plan, self.agent_tools['coding_agent'], 'coding_agent', iteration, session_id)
+            plan = await self._execute_next_step(plan, 'coding_agent', iteration)
             iteration += 1
 
         # Print final completion status
@@ -525,11 +512,8 @@ Selection criteria are automatically derived from each agent's description and c
 
         return plan
 
-    async def process_task_interactive(self, plan: Plan, session_id: str = "clay_session") -> None:
+    async def process_task_interactive(self, plan: Plan) -> None:
         """Run Clay in interactive REPL mode with prompt_toolkit.
-
-        Args:
-            session_id: Session identifier for tracing (default: "clay_session")
 
         This method executes the plan continuously without blocking. It allows user input
         to augment the plan at any time by adding user_message steps to the completed list.
@@ -563,6 +547,7 @@ Selection criteria are automatically derived from each agent's description and c
                     # Check for user input without blocking
                     user_input = None
                     if len(plan.todo) == 0:
+                        print("What would you like to do next?")
                         user_input = await user_input_queue.get()
                     else:
                         try:
@@ -602,10 +587,8 @@ Selection criteria are automatically derived from each agent's description and c
                     # Execute plan steps if there are any
                     plan = await self._execute_next_step(
                         plan,
-                        self.agent_tools['coding_agent'],
                         'coding_agent',
-                        iteration,
-                        session_id
+                        iteration
                     )
                     iteration += 1
 
@@ -619,17 +602,27 @@ Selection criteria are automatically derived from each agent's description and c
                     pass
 
     async def _execute_next_step(
-        self, plan: Plan, agent_tools: dict, selected_agent, iteration: int, session_id: str
+        self, plan: Plan, agent_name: str, iteration: int,
     ) -> Plan:
-        """Execute the next step in the plan and return updated plan."""
+        """Execute the next step in the plan and return updated plan.
+
+        Args:
+            plan: Current plan with todo and completed steps
+            agent_name: Name of the agent to use for execution
+            iteration: Current iteration number for tracing
+
+        Returns:
+            Updated plan after executing one step
+        """
 
         # Have agent review the plan and update todo list if needed (unless LLM is disabled)
         # Review if there are remaining todos OR if there are any failures to address
-        plan = await self.agents[selected_agent].review_plan(plan)
+        agent = self.agents[agent_name]
+        plan = await agent.review_plan(plan)
 
         # Save plan at each iteration
         self._save_plan_to_trace_dir(plan, iteration)
-        save_trace_file(session_id, self.traces_dir)
+        save_trace_file(None, self.traces_dir)
 
         if len(plan.todo) == 0:
             return plan
@@ -639,7 +632,15 @@ Selection criteria are automatically derived from each agent's description and c
         tool_name = next_step.tool_name
         parameters = next_step.parameters
 
-        tool = agent_tools[tool_name]
+        # Get tool from agent's tool registry
+        if not hasattr(agent, 'tools') or tool_name not in agent.tools:
+            error_msg = f"Tool {tool_name} not found in {agent_name}"
+            tool_not_found_msg = f"\n❌ Tool execution failed: {error_msg}"
+            self.console.display(tool_not_found_msg, track_lines=False)
+            plan.complete_next_step(error=error_msg)
+            return plan
+
+        tool = agent.tools[tool_name]
         monitor_task = None  # Initialize for proper cleanup
 
         # Create output buffer for this tool execution

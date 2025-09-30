@@ -40,7 +40,7 @@ class CodingAgent(Agent):
         "Ensure backward compatibility and migration strategies"
     ]
 
-    def __init__(self):
+    def __init__(self, interactive: bool = False):
         super().__init__(
             name=self.name,
             description=self.description
@@ -55,6 +55,10 @@ class CodingAgent(Agent):
             WriteTool(),
             UpdateTool()
         ])
+
+        if interactive:
+            from ..tools import UserInputTool
+            agent.register_tool(UserInputTool())
 
     @trace_operation
     async def review_plan(self, plan: Plan) -> Plan:

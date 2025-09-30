@@ -478,7 +478,7 @@ def trace_method(component: str = None):
     return decorator
 
 
-def save_trace_file(session_id: str = None, output_dir: Path = None) -> Path:
+def save_trace_file(session_id: Optional[str] = None, output_dir: Path = None) -> Path:
     """Save trace to file and return the filepath."""
     if output_dir is None:
         # Use current working directory - for tests this will be the isolated test directory
@@ -489,7 +489,7 @@ def save_trace_file(session_id: str = None, output_dir: Path = None) -> Path:
 
     # Use simple filename that overwrites previous traces
     filename = "clay_trace"
-    if session_id:
+    if session_id is not None:
         filename += f"_{session_id}"
     filename += ".json"
 
