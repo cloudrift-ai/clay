@@ -19,7 +19,8 @@ async def test_basic_math():
     ]
 
     for query, expected_answer in test_cases:
-        plan = await orchestrator.process_task(query)
+        initial_plan = orchestrator.create_plan_from_goal(query)
+        plan = await orchestrator.process_task(initial_plan)
 
         # Verify plan structure
         # Plan should have completed successfully (check for message steps)
@@ -53,7 +54,8 @@ async def test_simple_facts():
     ]
 
     for query, expected_keywords in test_cases:
-        plan = await orchestrator.process_task(query)
+        initial_plan = orchestrator.create_plan_from_goal(query)
+        plan = await orchestrator.process_task(initial_plan)
 
         # Verify plan structure
         # Plan should have completed successfully (check for message steps)
@@ -88,7 +90,8 @@ async def test_simple_definitions():
     ]
 
     for query, expected_keywords in test_cases:
-        plan = await orchestrator.process_task(query)
+        initial_plan = orchestrator.create_plan_from_goal(query)
+        plan = await orchestrator.process_task(initial_plan)
 
         # Verify plan structure
         # Plan should have completed successfully (check for message steps)
@@ -123,7 +126,8 @@ async def test_informational_queries():
     ]
 
     for query, expected_keywords in info_queries:
-        plan = await orchestrator.process_task(query)
+        initial_plan = orchestrator.create_plan_from_goal(query)
+        plan = await orchestrator.process_task(initial_plan)
 
         # Verify plan structure - informational queries should not execute tools
         # Plan should have completed successfully (check for message steps)
@@ -157,7 +161,8 @@ async def test_actual_file_operations():
     ]
 
     for query, expected_tool, expected_command in file_operations:
-        plan = await orchestrator.process_task(query)
+        initial_plan = orchestrator.create_plan_from_goal(query)
+        plan = await orchestrator.process_task(initial_plan)
 
         # Verify plan structure - actual file operations should execute tools
         # Plan should have completed successfully (check for message steps)
@@ -192,7 +197,8 @@ async def test_simple_comparisons():
     ]
 
     for query, expected_keywords in test_cases:
-        plan = await orchestrator.process_task(query)
+        initial_plan = orchestrator.create_plan_from_goal(query)
+        plan = await orchestrator.process_task(initial_plan)
 
         # Verify plan structure
         # Plan should have completed successfully (check for message steps)
@@ -226,7 +232,8 @@ async def test_coding_tasks_with_tool_execution():
     ]
 
     for query, expected_tool, expected_content in coding_tasks:
-        plan = await orchestrator.process_task(query)
+        initial_plan = orchestrator.create_plan_from_goal(query)
+        plan = await orchestrator.process_task(initial_plan)
 
         # Verify plan structure - coding tasks should execute tools
         # Plan should have completed successfully (check for message steps)

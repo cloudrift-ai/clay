@@ -43,11 +43,11 @@ class Step:
 class Plan:
     """A complete execution plan containing multiple steps."""
     todo: List[Step]  # Steps yet to be executed
-    completed: List[Step] = None  # Steps that have been completed
+    completed: List[Step]  # Steps that have been completed
 
-    def __post_init__(self):
-        if self.completed is None:
-            self.completed = []
+    def __init__(self, todo: List[Step] = [], completed: List[Step] = []):
+        self.todo = todo
+        self.completed = completed
 
     @classmethod
     def create_simple_response(cls, message: str, description: Optional[str] = None):

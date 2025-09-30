@@ -329,42 +329,6 @@ Selection criteria are automatically derived from each agent's description and c
         """Check if terminal supports ANSI escape sequences."""
         return hasattr(sys.stdout, 'isatty') and sys.stdout.isatty() and os.getenv('TERM') != 'dumb'
 
-    async def _run_repl_mode(self) -> Plan:
-        """Run Clay in interactive REPL mode."""
-        try:
-            while True:
-                try:
-                    print()
-                    task = input("❯ ").strip()
-
-                    if task.lower() in ['exit', 'quit', 'q']:
-                        print("Goodbye! 👋")
-                        break
-
-                    if not task:
-                        continue
-
-                    print()  # Add spacing before task execution
-                    # Execute the task using the normal process_task flow
-                    await self.process_task(task)
-
-                except KeyboardInterrupt:
-                    print("\nGoodbye! 👋")
-                    break
-                except EOFError:
-                    print("\nGoodbye! 👋")
-                    break
-
-        except Exception as e:
-            print(f"❌ Error in interactive mode: {e}")
-
-        # Return a simple completion plan for REPL mode
-        from clay.orchestrator.plan import Plan
-        return Plan(todo=[], completed=[])
-
-
-
-
     def _get_tool_display_name(self, tool_name: str, parameters: dict[str, Any]) -> str:
         """Get formatted tool display name."""
         if tool_name == "bash":
@@ -380,6 +344,35 @@ Selection criteria are automatically derived from each agent's description and c
             return f"Read({file_path})"
         else:
             return f"{tool_name.title()}(...)"
+
+    def create_plan_from_goal(self, goal: str) -> Plan:
+        """Create an initial plan from a goal with a UserMessageTool step.
+
+        Args:
+            goal: The user's task description
+
+        Returns:
+            Plan with a completed UserMessageTool step containing the goal
+        """
+        from clay.orchestrator.plan import Step
+        user_message_step = Step(
+            tool_name="user_message",
+            parameters={"message": goal},
+            description="User's initial request"
+        )
+        # Mark it as already completed since it represents the input
+        user_message_step.status = "SUCCESS"
+        user_message_step.result = {
+            "output": goal,
+            "metadata": {
+                "message": goal,
+                "tool_type": "user_context",
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+
+        # Create initial plan with UserMessageTool
+        return Plan(todo=[], completed=[user_message_step])
 
     def _get_plan_summary_content(self, plan: Plan, interactive: bool = False) -> str:
         """Get plan summary content as a string for display."""
@@ -508,226 +501,197 @@ Selection criteria are automatically derived from each agent's description and c
                 pass
 
     @trace_operation
-    async def process_task(
-        self, goal: Optional[str] = None, plan: Optional['Plan'] = None
-    ) -> 'Plan':
+    async def process_task(self, plan: 'Plan', session_id: str = "clay_session") -> 'Plan':
         """Process a task using iterative agent planning and execution.
 
         Args:
-            goal: Task description. If None, starts interactive REPL mode.
-            plan: Pre-built plan to execute. If provided, skips agent planning phase.
+            plan: Plan to execute. Create using create_plan_from_goal() if starting from a goal.
+            session_id: Session identifier for tracing (default: "clay_session")
 
         The process:
-        1. Agent creates initial plan (or use provided plan)
-        2. Execute next step from todo list
-        3. Agent reviews plan with completed step and updates todo list (unless disabled)
-        4. Repeat until todo list is empty
+        1. Execute next step from todo list
+        2. Agent reviews plan with completed step and updates todo list (unless disabled)
+        3. Repeat until todo list is empty
         """
 
-        # Handle REPL mode when no goal is provided
-        if goal is None and plan is None:
-            return await self._run_repl_mode()
+        iteration = 0
+        while plan.todo:
+            self._save_plan_to_trace_dir(plan, iteration)
+            plan = await self._execute_next_step(plan, self.agent_tools['coding_agent'], 'coding_agent', iteration, session_id)
+            iteration += 1
 
-        working_dir = Path.cwd()
-        if not working_dir.exists():
-            return Plan.create_error_response(
-                error=f"Working directory {working_dir} does not exist",
-                description="Working directory validation failed"
-            )
+        # Print final completion status
+        self._print_completion_status(plan)
 
-        # Initialize session_id for error handling
-        session_id = "clay_session"
+        return plan
 
-        try:
-            # Set up tracing with single session
-            clear_trace()
-            set_session_id(session_id)
+    async def process_task_interactive(self, plan: Plan, session_id: str = "clay_session") -> None:
+        """Run Clay in interactive REPL mode with prompt_toolkit.
 
-            # Use provided plan or create initial plan with UserMessageTool
-            if plan is None:
-                from clay.orchestrator.plan import Step
-                user_message_step = Step(
-                    tool_name="user_message",
-                    parameters={"message": goal},
-                    description="User's initial request"
-                )
-                # Mark it as already completed since it represents the input
-                user_message_step.status = "SUCCESS"
-                user_message_step.result = {
-                    "output": goal,
-                    "metadata": {
-                        "message": goal,
-                        "tool_type": "user_context",
-                        "timestamp": datetime.now().isoformat()
-                    }
-                }
+        Args:
+            session_id: Session identifier for tracing (default: "clay_session")
 
-                # Create initial plan with UserMessageTool
-                plan = Plan(todo=[], completed=[user_message_step])
+        This method executes the plan continuously without blocking. It allows user input
+        to augment the plan at any time by adding user_message steps to the completed list.
+        """
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.patch_stdout import patch_stdout
+        from clay.orchestrator.plan import Step
 
-                if not self.disable_llm:
-                    # Select the best agent for the task
-                    selected_agent_name = await self.select_agent(goal)
-                    selected_agent = self.agents[selected_agent_name]
+        session = PromptSession("❯ ")
+        iteration = 0
+        user_input_queue = asyncio.Queue()
+        should_exit = False
 
-                    # Get initial plan from agent (pass plan with UserMessageTool instead of goal)
-                    plan = await selected_agent.run(plan)
-                else:
-                    # Default to coding agent when LLM is disabled
-                    selected_agent_name = 'coding_agent'
-                    selected_agent = self.agents[selected_agent_name]
-            else:
-                # Use provided plan, default to coding agent
-                selected_agent_name = 'coding_agent'
-                selected_agent = self.agents[selected_agent_name]
+        async def input_handler():
+            """Background task to handle user input without blocking execution."""
+            nonlocal should_exit
+            while not should_exit:
+                try:
+                    line = await session.prompt_async()
+                    await user_input_queue.put(line.strip())
+                except (KeyboardInterrupt, EOFError):
+                    should_exit = True
+                    break
 
-            agent_tools = self.agent_tools[selected_agent_name]
+        # Start input handler in background
+        with patch_stdout(raw=True):
+            input_task = asyncio.create_task(input_handler())
 
-            # Save initial plan (iteration 0)
-            iteration = 0
-            self._save_plan_to_trace_dir(plan, 0)
-
-            # Display initial plan summary
-            plan_content = self._get_plan_summary_content(plan, self.interactive)
-            self.console.display(plan_content)
-
-            while plan.todo:
-                iteration += 1
-
-                # Execute the next step
-                next_step = plan.todo[0]
-                tool_name = next_step.tool_name
-                parameters = next_step.parameters
-
-                if tool_name in agent_tools:
-                    tool = agent_tools[tool_name]
-                    monitor_task = None  # Initialize for proper cleanup
-                    try:
-                        # Create output buffer for this tool execution
-                        buffer = ToolOutputBuffer(tool_name, parameters)
-                        self._current_tool_buffer = buffer
-
-                        # Start real-time output monitoring task
-                        monitor_task = asyncio.create_task(self._monitor_tool_output(buffer))
-
+            try:
+                while not should_exit:
+                    # Check for user input without blocking
+                    user_input = None
+                    if len(plan.todo) == 0:
+                        user_input = await user_input_queue.get()
+                    else:
                         try:
-                            # Create callback for real-time output
-                            # (bash tool will use it, others will ignore it)
-                            def output_callback(line: str, buffer=buffer):
-                                buffer.add_output(line)
+                            user_input = user_input_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
 
-                            # Execute the tool with potential streaming support
-                            result = await tool.run(
-                                output_callback=output_callback,
-                                **parameters
+                    # Process user input if available
+                    if user_input:
+                        if user_input.lower() in ['exit', 'quit', 'q']:
+                            print("Goodbye! 👋")
+                            should_exit = True
+                            break
+
+                        if user_input:
+                            print()  # Add spacing before task execution
+
+                            # Add user input as a completed user_message step
+                            user_message_step = Step(
+                                tool_name="user_message",
+                                parameters={"message": user_input},
+                                description="User input"
                             )
+                            user_message_step.status = "SUCCESS"
+                            user_message_step.result = {
+                                "output": user_input,
+                                "metadata": {
+                                    "message": user_input,
+                                    "tool_type": "user_context",
+                                    "timestamp": datetime.now().isoformat()
+                                }
+                            }
 
-                            # For tools that don't support streaming, capture output from result
-                            if tool_name != "bash":
-                                tool_output = ""
-                                if hasattr(result, 'stdout') and result.stdout:
-                                    tool_output = result.stdout
-                                elif hasattr(result, 'output') and result.output:
-                                    tool_output = result.output
+                            # Add user message to existing plan's completed steps
+                            plan.completed.append(user_message_step)
 
-                                # Add output to buffer
-                                if tool_output:
-                                    buffer.add_output(tool_output)
+                    # Execute plan steps if there are any
+                    plan = await self._execute_next_step(
+                        plan,
+                        self.agent_tools['coding_agent'],
+                        'coding_agent',
+                        iteration,
+                        session_id
+                    )
+                    iteration += 1
 
-                            buffer.finish(success=True)
+            finally:
+                # Clean up input handler
+                should_exit = True
+                input_task.cancel()
+                try:
+                    await input_task
+                except asyncio.CancelledError:
+                    pass
 
-                            # Cancel monitoring task and wait for it to complete
-                            monitor_task.cancel()
-                            try:
-                                await monitor_task
-                            except asyncio.CancelledError:
-                                pass
+    async def _execute_next_step(
+        self, plan: Plan, agent_tools: dict, selected_agent, iteration: int, session_id: str
+    ) -> Plan:
+        """Execute the next step in the plan and return updated plan."""
 
-                            # Show final buffered summary
-                            self._print_tool_execution_summary(
-                                tool, tool_name, parameters, result, buffer
-                            )
+        # Have agent review the plan and update todo list if needed (unless LLM is disabled)
+        # Review if there are remaining todos OR if there are any failures to address
+        plan = await self.agents[selected_agent].review_plan(plan)
 
-                            # Move step to completed with successful result
-                            plan.complete_next_step(result=result.to_dict())
-                            self._current_tool_buffer = None
+        # Save plan at each iteration
+        self._save_plan_to_trace_dir(plan, iteration)
+        save_trace_file(session_id, self.traces_dir)
 
-                        except Exception as tool_error:
-                            # Cancel monitoring task
-                            monitor_task.cancel()
-                            try:
-                                await monitor_task
-                            except asyncio.CancelledError:
-                                pass
-                            raise tool_error
-
-                    except Exception as e:
-                        # Tool execution failed - mark as FAILURE
-                        error_msg = str(e)
-
-                        # Mark buffer as failed if it exists
-                        if self._current_tool_buffer:
-                            self._current_tool_buffer.finish(success=False)
-
-                            # Cancel monitoring task if it's running
-                            if monitor_task:
-                                monitor_task.cancel()
-                                try:
-                                    await monitor_task
-                                except asyncio.CancelledError:
-                                    pass
-
-                            # Show final summary with failure status
-                            self._print_tool_execution_summary(
-                                tool, tool_name, parameters, None, self._current_tool_buffer
-                            )
-                            self._current_tool_buffer = None
-                        else:
-                            # Fallback if no buffer
-                            error_msg_display = f"\n❌ Tool execution failed: {error_msg}"
-                            self.console.display(error_msg_display, track_lines=False)
-
-                        plan.complete_next_step(error=error_msg)
-                else:
-                    error_msg = f"Tool {tool_name} not found"
-                    tool_not_found_msg = f"\n❌ Tool execution failed: {error_msg}"
-                    self.console.display(tool_not_found_msg, track_lines=False)
-                    plan.complete_next_step(error=error_msg)
-
-                # Display plan summary after tool execution
-                plan_content = self._get_plan_summary_content(plan, self.interactive)
-                self.console.display(plan_content)
-
-                # Have agent review the plan and update todo list if needed (unless LLM is disabled)
-                # Review if there are remaining todos OR if there are any failures to address
-                should_review = bool(plan.todo) or plan.has_failed
-                if should_review and not self.disable_llm:
-                    plan = await selected_agent.review_plan(plan)
-
-                # Save plan after each iteration
-                self._save_plan_to_trace_dir(plan, iteration)
-
-                # Save trace after each iteration (overwrites same file)
-                save_trace_file(session_id, self.traces_dir)
-
-            # Print final completion status
-            self._print_completion_status(plan)
-
+        if len(plan.todo) == 0:
             return plan
 
-        except Exception as e:
-            # Save error trace
-            save_trace_file(f"{session_id}_error", self.traces_dir)
+        # Execute the next step
+        next_step = plan.todo[0]
+        tool_name = next_step.tool_name
+        parameters = next_step.parameters
 
-            orchestrator_error_msg = f"\n❌ ORCHESTRATOR ERROR: {str(e)}"
-            self.console.display(orchestrator_error_msg, track_lines=False)
-            task_failed_msg = "\n🚫 Task failed due to orchestrator error"
-            self.console.display(task_failed_msg, track_lines=False)
+        tool = agent_tools[tool_name]
+        monitor_task = None  # Initialize for proper cleanup
 
-            # Get task description from goal or use generic fallback
-            task_desc = goal[:50] if len(goal) <= 50 else f"{goal[:47]}..."
-            error_plan = Plan.create_error_response(
-                error=str(e),
-                description=f"Orchestrator error processing: {task_desc}"
-            )
-            return error_plan
+        # Create output buffer for this tool execution
+        buffer = ToolOutputBuffer(tool_name, parameters)
+        self._current_tool_buffer = buffer
+
+        # Start real-time output monitoring task
+        monitor_task = asyncio.create_task(self._monitor_tool_output(buffer))
+
+        # Create callback for real-time output
+        # (bash tool will use it, others will ignore it)
+        def output_callback(line: str, buffer=buffer):
+            buffer.add_output(line)
+
+        # Execute the tool with potential streaming support
+        result = await tool.run(
+            output_callback=output_callback,
+            **parameters
+        )
+
+        # For tools that don't support streaming, capture output from result
+        if tool_name != "bash":
+            tool_output = ""
+            if hasattr(result, 'stdout') and result.stdout:
+                tool_output = result.stdout
+            elif hasattr(result, 'output') and result.output:
+                tool_output = result.output
+
+            # Add output to buffer
+            if tool_output:
+                buffer.add_output(tool_output)
+
+        buffer.finish(success=True)
+
+        # Cancel monitoring task and wait for it to complete
+        monitor_task.cancel()
+        try:
+            await monitor_task
+        except asyncio.CancelledError:
+            pass
+
+        # Show final buffered summary
+        self._print_tool_execution_summary(
+            tool, tool_name, parameters, result, buffer
+        )
+
+        # Move step to completed with successful result
+        plan.complete_next_step(result=result.to_dict())
+        self._current_tool_buffer = None
+
+        # Display plan summary after tool execution
+        plan_content = self._get_plan_summary_content(plan, self.interactive)
+        self.console.display(plan_content)
+
+        return plan
