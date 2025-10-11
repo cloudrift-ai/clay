@@ -7,7 +7,7 @@ from pathlib import Path
 
 from clay.orchestrator import ClayOrchestrator
 from clay.trace import set_session_id, save_trace_file
-from .test_helpers import assert_response_quality
+from test_helpers import assert_response_quality
 
 
 @pytest.mark.asyncio
@@ -28,9 +28,10 @@ async def test_complex_web_application_creation():
         import os
         os.chdir(test_dir)
 
-        # Initialize orchestrator with traces
+        # Initialize orchestrator with traces and disable LLM for testing
         traces_dir = test_dir / "_trace"
         orchestrator = ClayOrchestrator(traces_dir=traces_dir)
+        orchestrator.disable_llm = True
 
         # Set session for tracing
         set_session_id("complex_web_app_test")
@@ -53,8 +54,9 @@ async def test_complex_web_application_creation():
         - Logging configuration
         - Environment-based configuration"""
 
-        # Execute the task
-        result = await orchestrator.process_task(task)
+        # Execute the task - create a Plan object first using orchestrator method
+        plan = orchestrator.create_plan_from_goal(task)
+        result = await orchestrator.process_task(plan)
 
         # Verify task completion
         assert result is not None
@@ -271,9 +273,10 @@ async def test_data_science_project_creation():
         import os
         os.chdir(test_dir)
 
-        # Initialize orchestrator with traces
+        # Initialize orchestrator with traces and disable LLM for testing
         traces_dir = test_dir / "_trace"
         orchestrator = ClayOrchestrator(traces_dir=traces_dir)
+        orchestrator.disable_llm = True
 
         # Set session for tracing
         set_session_id("data_science_project_test")
@@ -294,8 +297,9 @@ async def test_data_science_project_creation():
         - Professional code structure with modules
         - Documentation for findings and methodology"""
 
-        # Execute the task
-        result = await orchestrator.process_task(task)
+        # Execute the task - create a Plan object first using orchestrator method
+        plan = orchestrator.create_plan_from_goal(task)
+        result = await orchestrator.process_task(plan)
 
         # Verify task completion
         assert result is not None
@@ -387,9 +391,10 @@ async def test_api_microservice_creation():
         import os
         os.chdir(test_dir)
 
-        # Initialize orchestrator with traces
+        # Initialize orchestrator with traces and disable LLM for testing
         traces_dir = test_dir / "_trace"
         orchestrator = ClayOrchestrator(traces_dir=traces_dir)
+        orchestrator.disable_llm = True
 
         # Set session for tracing
         set_session_id("api_microservice_test")
@@ -413,8 +418,9 @@ async def test_api_microservice_creation():
         - Database migration scripts
         - API versioning support"""
 
-        # Execute the task
-        result = await orchestrator.process_task(task)
+        # Execute the task - create a Plan object first using orchestrator method
+        plan = orchestrator.create_plan_from_goal(task)
+        result = await orchestrator.process_task(plan)
 
         # Verify task completion
         assert result is not None
