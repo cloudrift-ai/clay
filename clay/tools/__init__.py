@@ -2,7 +2,7 @@
 
 from .base import Tool, ToolResult, ToolError
 from .bash_tool import BashTool, BashToolResult
-from .user_tools import AgentMessageTool, UserMessageTool, UserInputTool, AgentMessageToolResult, UserMessageToolResult, UserInputToolResult
+from .user_tools import AgentMessageTool, UserMessageTool, AgentMessageToolResult, UserMessageToolResult
 from .file_tools import ReadTool, WriteTool, UpdateTool, FileToolResult
 
 __all__ = [
@@ -15,8 +15,6 @@ __all__ = [
     "AgentMessageToolResult",
     "UserMessageTool",
     "UserMessageToolResult",
-    "UserInputTool",
-    "UserInputToolResult",
     "ReadTool",
     "WriteTool",
     "UpdateTool",

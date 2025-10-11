@@ -56,10 +56,6 @@ class CodingAgent(Agent):
             UpdateTool()
         ])
 
-        if interactive:
-            from ..tools import UserInputTool
-            self.register_tool(UserInputTool())
-
     @trace_operation
     async def review_plan(self, plan: Plan) -> Plan:
         """Review current plan state and update todo list based on completed steps.

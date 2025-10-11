@@ -503,8 +503,12 @@ Selection criteria are automatically derived from each agent's description and c
         """
 
         # Handle case where completed list might be empty (initial execution)
-        initial_message = plan.completed[0].parameters.get("message", "") if plan.completed else ""
-        agent_name = await self.select_agent(initial_message)
+        if self.disable_llm:
+            # When LLM is disabled, use coding_agent directly (it has all the tools)
+            agent_name = 'coding_agent'
+        else:
+            initial_message = plan.completed[0].parameters.get("message", "") if plan.completed else ""
+            agent_name = await self.select_agent(initial_message)
         agent = self.agents[agent_name]
 
         iteration = 0
@@ -563,7 +567,11 @@ Selection criteria are automatically derived from each agent's description and c
                     if len(plan.todo) == 0:
                         print("What would you like to do next?")
                         user_input = await user_input_queue.get()
-                        agent_name = await self.select_agent(user_input)
+                        if self.disable_llm:
+                            # When LLM is disabled, use coding_agent directly (it has all the tools)
+                            agent_name = 'coding_agent'
+                        else:
+                            agent_name = await self.select_agent(user_input)
                     else:
                         try:
                             user_input = user_input_queue.get_nowait()
