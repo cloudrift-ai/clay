@@ -11,6 +11,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from colorama import init, Fore, Style, Back
+
+# Initialize colorama for cross-platform support
+init(autoreset=True)
+
 from ..trace import clear_trace, save_trace_file, set_session_id, trace_operation
 from .plan import Plan
 
@@ -117,16 +122,16 @@ class ToolOutputBuffer:
             # Determine status and colors
             if not self.is_finished:
                 status = "Running"
-                status_color = "\033[33m" if use_colors else ""  # Yellow for running
+                status_color = Fore.YELLOW if use_colors else ""  # Yellow for running
             elif self.is_success:
                 status = "Success"
-                status_color = "\033[32m" if use_colors else ""  # Green for success
+                status_color = Fore.GREEN if use_colors else ""  # Green for success
             else:
                 status = "Failed"
-                status_color = "\033[31m" if use_colors else ""  # Red for failure
+                status_color = Fore.RED if use_colors else ""  # Red for failure
 
-            reset_color = "\033[0m" if use_colors else ""
-            gray_color = "\033[37m" if use_colors else ""  # Gray for output text
+            reset_color = Style.RESET_ALL if use_colors else ""
+            gray_color = Fore.LIGHTBLACK_EX if use_colors else ""  # Gray for output text
 
             # Header with tool info and stats
             summary_parts.append(
@@ -177,13 +182,13 @@ class ToolOutputBuffer:
             # Determine colors based on success/failure
             if self.is_success:
                 status = "Success"
-                status_color = "\033[32m" if use_colors else ""  # Green
+                status_color = Fore.GREEN if use_colors else ""  # Green
             else:
                 status = "Failed"
-                status_color = "\033[31m" if use_colors else ""  # Red
+                status_color = Fore.RED if use_colors else ""  # Red
 
-            reset_color = "\033[0m" if use_colors else ""
-            gray_color = "\033[37m" if use_colors else ""  # Gray for output
+            reset_color = Style.RESET_ALL if use_colors else ""
+            gray_color = Fore.LIGHTBLACK_EX if use_colors else ""  # Gray for output
 
             if self.total_lines == 0:
                 return f"  ⎿ {status_color}{status}{reset_color} (no output, {execution_time:.1f}s)"
@@ -359,10 +364,8 @@ class ClayOrchestrator:
         tool_display = self._get_tool_display_name(buffer.tool_name, buffer.parameters)
 
         if self.console.supports_ansi:
-            yellow = "\033[33m"
-            reset = "\033[0m"
             if blink_state:
-                lines.append(f"{yellow}⏺{reset} {tool_display}")
+                lines.append(f"{Fore.YELLOW}⏺{Style.RESET_ALL} {tool_display}")
             else:
                 lines.append(f"  {tool_display}")
         else:
@@ -386,10 +389,10 @@ class ClayOrchestrator:
         if self.console.supports_ansi:
             if buffer.is_success:
                 # Green checkmark for success
-                indicator = "\033[32m✓\033[0m"
+                indicator = f"{Fore.GREEN}✓{Style.RESET_ALL}"
             else:
                 # Red X for failure
-                indicator = "\033[31m✗\033[0m"
+                indicator = f"{Fore.RED}✗{Style.RESET_ALL}"
             # Replace the default indicator with colored one
             if tool_display.startswith("⏺"):
                 tool_display = indicator + tool_display[1:]
@@ -662,7 +665,7 @@ class ClayOrchestrator:
             # Show error summary
             tool_display = tool.get_tool_call_display(parameters)
             if self.console.supports_ansi:
-                indicator = "\033[31m✗\033[0m"  # Red X for failure
+                indicator = f"{Fore.RED}✗{Style.RESET_ALL}"  # Red X for failure
                 if tool_display.startswith("⏺"):
                     tool_display = indicator + tool_display[1:]
             print(tool_display)
