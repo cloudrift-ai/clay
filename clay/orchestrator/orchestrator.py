@@ -502,7 +502,9 @@ Selection criteria are automatically derived from each agent's description and c
         4. Repeat until todo list is empty
         """
 
-        agent_name = await self.select_agent(plan.completed[0].parameters.get("message", ""))
+        # Handle case where completed list might be empty (initial execution)
+        initial_message = plan.completed[0].parameters.get("message", "") if plan.completed else ""
+        agent_name = await self.select_agent(initial_message)
         agent = self.agents[agent_name]
 
         iteration = 0

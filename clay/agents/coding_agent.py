@@ -58,7 +58,7 @@ class CodingAgent(Agent):
 
         if interactive:
             from ..tools import UserInputTool
-            agent.register_tool(UserInputTool())
+            self.register_tool(UserInputTool())
 
     @trace_operation
     async def review_plan(self, plan: Plan) -> Plan:
