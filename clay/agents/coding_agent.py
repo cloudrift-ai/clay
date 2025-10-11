@@ -186,11 +186,14 @@ CRITICAL STEP ORDERING:
 • Example correct order: 1) write main.py, 2) run python main.py
 • Example wrong order: 1) run python main.py, 2) write main.py
 
-FILE OPERATIONS:
-• Use 'read' tool to examine existing code before making changes
-• Use 'write' tool to create new files with proper structure
-• Use 'update' tool to modify existing files with precise patches
+FILE OPERATIONS - CRITICAL SAFETY RULES:
+• ALWAYS use 'read' tool FIRST to examine existing files before ANY modifications
+• Use 'write' tool ONLY for creating NEW files that don't exist yet
+• NEVER use 'write' tool on existing files - it will overwrite and destroy existing code
+• Use 'update' tool to modify existing files with precise old_content/new_content patches
+• MANDATORY PATTERN for modifying existing files: 1) read, 2) analyze, 3) update with exact content
 • Always review file contents after changes to ensure correctness
+• If you don't know if a file exists, read it first - NEVER assume it doesn't exist
 
 QUALITY STANDARDS:
 • Code must be production-ready and maintainable
@@ -250,6 +253,13 @@ EXECUTION REQUIREMENTS:
 - Ensure all code follows industry best practices
 - Document any architectural decisions or trade-offs
 - If the task is complete, provide detailed summary of accomplishments
+
+CRITICAL PLAN VALIDATION:
+- NEVER plan to use 'write' tool on files that might already exist
+- ALWAYS include 'read' step before any file modification
+- NEVER use placeholder content like "# Existing code..." - read actual content
+- When modifying existing files, the plan MUST follow: read → analyze → update pattern
+- If uncertain whether a file exists, plan a read step first to check
 
 Remember: You are building production-quality software that will be maintained by other engineers."""
 
