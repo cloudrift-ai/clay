@@ -668,14 +668,21 @@ Selection criteria are automatically derived from each agent's description and c
         def output_callback(line: str, buffer=buffer):
             buffer.add_output(line)
 
-        # Execute the tool with potential streaming support
-        result = await tool.run(
-            output_callback=output_callback,
-            **parameters
-        )
+        # Execute the tool with localized error handling
+        result = None
+        error_msg = None
+
+        try:
+            result = await tool.run(
+                output_callback=output_callback,
+                **parameters
+            )
+        except Exception as e:
+            error_msg = str(e)
+            buffer.add_output(error_msg)
 
         # For tools that don't support streaming, capture output from result
-        if tool_name != "bash":
+        if result and tool_name != "bash":
             tool_output = ""
             if hasattr(result, 'stdout') and result.stdout:
                 tool_output = result.stdout
@@ -686,7 +693,8 @@ Selection criteria are automatically derived from each agent's description and c
             if tool_output:
                 buffer.add_output(tool_output)
 
-        buffer.finish(success=True)
+        # Mark execution as finished
+        buffer.finish(success=(error_msg is None))
 
         # Cancel monitoring task and wait for it to complete
         monitor_task.cancel()
@@ -695,16 +703,35 @@ Selection criteria are automatically derived from each agent's description and c
         except asyncio.CancelledError:
             pass
 
-        # Show final buffered summary
-        self._print_tool_execution_summary(
-            tool, tool_name, parameters, result, buffer
-        )
+        # Show execution summary
+        if result:
+            self._print_tool_execution_summary(
+                tool, tool_name, parameters, result, buffer
+            )
+        else:
+            # Show error summary
+            tool_display = tool.get_tool_call_display(parameters)
+            if self.console.supports_ansi:
+                indicator = "\033[31m✗\033[0m"  # Red X for failure
+                if tool_display.startswith("⏺"):
+                    tool_display = indicator + tool_display[1:]
+            print(tool_display)
 
-        # Move step to completed with successful result
-        plan.complete_next_step(result=result.to_dict())
+            # Print error details
+            summary = buffer.get_final_summary(use_colors=self.console.supports_ansi)
+            if summary:
+                print(summary)
+                print()
+
+        # Move step to completed
+        if error_msg:
+            plan.complete_next_step(error=error_msg)
+        else:
+            plan.complete_next_step(result=result.to_dict())
+
         self._current_tool_buffer = None
 
-        # Display plan summary after tool execution
+        # Display plan summary after execution
         plan_content = self._get_plan_summary_content(plan, self.interactive)
         self.console.display(plan_content)
 
