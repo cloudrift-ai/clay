@@ -39,8 +39,7 @@ class TestInteractiveExecution:
         orchestrator = ClayOrchestrator(disable_llm=True)
 
         # Mock the agent's review_plan to just return the plan unchanged when LLM disabled
-        for agent in orchestrator.agents.values():
-            agent.review_plan = AsyncMock(side_effect=lambda p: p)
+        orchestrator.agent.review_plan = AsyncMock(side_effect=lambda p: p)
 
         # Capture stdout to verify output behavior
         captured_output = io.StringIO()
@@ -89,8 +88,7 @@ class TestInteractiveExecution:
         orchestrator = ClayOrchestrator(disable_llm=True)
 
         # Mock the agent's review_plan to just return the plan unchanged when LLM disabled
-        for agent in orchestrator.agents.values():
-            agent.review_plan = AsyncMock(side_effect=lambda p: p)
+        orchestrator.agent.review_plan = AsyncMock(side_effect=lambda p: p)
 
         # Execute the plan
         result_plan = await orchestrator.process_task(plan=plan)
@@ -139,8 +137,7 @@ class TestInteractiveExecution:
         orchestrator = ClayOrchestrator(disable_llm=True)
 
         # Mock the agent's review_plan to just return the plan unchanged when LLM disabled
-        for agent in orchestrator.agents.values():
-            agent.review_plan = AsyncMock(side_effect=lambda p: p)
+        orchestrator.agent.review_plan = AsyncMock(side_effect=lambda p: p)
 
         # Execute the plan
         result_plan = await orchestrator.process_task(plan=plan)
@@ -168,9 +165,9 @@ class TestInteractiveExecution:
         assert orchestrator.traces_dir == Path("_trace")
         assert orchestrator.traces_dir.exists()
 
-        # Should have agents initialized
-        assert 'coding_agent' in orchestrator.agents
-        assert 'llm_agent' in orchestrator.agents
+        # Should have agent initialized
+        assert hasattr(orchestrator, 'agent')
+        assert orchestrator.agent is not None
 
         # Test ANSI support detection (now in console)
         assert hasattr(orchestrator.console, 'supports_ansi')
@@ -197,8 +194,7 @@ class TestInteractiveExecution:
         orchestrator = ClayOrchestrator(disable_llm=True)
 
         # Mock the agent's review_plan to just return the plan unchanged when LLM disabled
-        for agent in orchestrator.agents.values():
-            agent.review_plan = AsyncMock(side_effect=lambda p: p)
+        orchestrator.agent.review_plan = AsyncMock(side_effect=lambda p: p)
 
         # Capture stdout to verify output behavior
         original_stdout = sys.stdout
@@ -255,8 +251,7 @@ class TestInteractiveExecution:
         orchestrator = ClayOrchestrator(disable_llm=True)
 
         # Mock the agent's review_plan to just return the plan unchanged when LLM disabled
-        for agent in orchestrator.agents.values():
-            agent.review_plan = AsyncMock(side_effect=lambda p: p)
+        orchestrator.agent.review_plan = AsyncMock(side_effect=lambda p: p)
 
         # Capture all stdout to analyze output behavior
         import threading

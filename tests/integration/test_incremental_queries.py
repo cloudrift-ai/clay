@@ -4,7 +4,6 @@ import pytest
 from datetime import datetime
 
 from clay.agents.coding_agent import CodingAgent
-from clay.agents.llm_agent import LLMAgent
 from clay.orchestrator.plan import Plan, Step
 
 
@@ -162,47 +161,6 @@ async def test_multi_step_plan_adjustment():
     assert len(npm_or_cd_steps) > 0, "Agent should include steps to work with the existing directory"
 
 
-@pytest.mark.asyncio
-async def test_llm_agent_handles_plan_state():
-    """Test that LLM agent can handle plans with completed steps appropriately."""
-    agent = LLMAgent()
-
-    # Create a plan with no completed message steps so agent will respond
-    task = "Now what is 4*3?"
-    user_message_step = create_user_message_step(task)
-
-    plan_with_history = Plan(
-        todo=[],
-        completed=[
-            user_message_step,
-            Step(
-                tool_name="bash",
-                parameters={"command": "echo 'Previous calculation: 2+2=4'"},
-                description="Previous calculation step",
-                result={
-                    "status": "success",
-                    "output": "Previous calculation: 2+2=4",
-                    "metadata": {"tool_name": "bash"}
-                },
-                error_message=None,
-                status="SUCCESS"
-            )
-        ]
-    )
-
-    # LLM agent should provide follow-up answer considering context
-    updated_plan = await agent.review_plan(plan_with_history)
-
-    # Should have a message step in todo list
-    assert len(updated_plan.todo) > 0, "LLM agent should provide a response step"
-
-    # Check if there's a message step
-    message_steps = [step for step in updated_plan.todo if step.tool_name == "message"]
-    assert len(message_steps) > 0, "LLM agent should use message tool"
-
-    # Check that the message contains the answer
-    message_content = message_steps[0].parameters.get("message", "")
-    assert "12" in message_content, "LLM agent should answer the math question"
 
 
 @pytest.mark.asyncio

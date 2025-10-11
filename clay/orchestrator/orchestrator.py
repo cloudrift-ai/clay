@@ -11,7 +11,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from ..llm import completion
 from ..trace import clear_trace, save_trace_file, set_session_id, trace_operation
 from .plan import Plan
 
@@ -230,7 +229,6 @@ class ClayOrchestrator:
             disable_llm: Disable LLM calls for testing (skips agent selection and plan review)
         """
         from ..agents.coding_agent import CodingAgent
-        from ..agents.llm_agent import LLMAgent
 
         # Set configuration first - always use _trace directory
         self.traces_dir = Path("_trace")
@@ -238,11 +236,8 @@ class ClayOrchestrator:
         self.interactive = interactive
         self.disable_llm = disable_llm
 
-        # Initialize all available agents
-        self.agents = {
-            'llm_agent': LLMAgent(),
-            'coding_agent': CodingAgent(interactive=interactive),
-        }
+        # Initialize the coding agent
+        self.agent = CodingAgent(interactive=interactive)
 
         # Real-time output tracking
         self._current_tool_buffer = None
@@ -251,37 +246,6 @@ class ClayOrchestrator:
         # Interactive console for display management
         self.console = InteractiveConsole()
 
-    @trace_operation
-    async def select_agent(self, goal: str) -> str:
-        """Use LLM to select the best agent for the task."""
-        agent_descriptions = self._build_agent_descriptions()
-        available_agent_names = list(self.agents.keys())
-
-        available_agents_str = ', '.join(available_agent_names)
-        system_prompt = f"""You are an agent router that selects the best agent for a given task.
-
-Available agents:
-{agent_descriptions}
-
-Choose the most appropriate agent for the task.
-Respond with ONLY the agent name from: {available_agents_str}.
-
-Selection criteria are automatically derived from each agent's description and capabilities."""
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Task: {goal}"}
-        ]
-
-        response = await completion(messages=messages, temperature=0.1)
-        selected_agent = response['choices'][0]['message']['content'].strip().lower()
-
-        # Validate and default to first available agent if unclear
-        if selected_agent not in self.agents:
-            # Default to first available agent for ambiguous cases
-            selected_agent = list(self.agents.keys())[0]
-
-        return selected_agent
 
     def _save_plan_to_trace_dir(self, plan: Plan, iteration: int) -> Path:
         """Save the plan to the traces directory for debugging."""
@@ -303,15 +267,6 @@ Selection criteria are automatically derived from each agent's description and c
 
         return filepath
 
-    def _build_agent_descriptions(self) -> str:
-        """Build a description of available agents."""
-        descriptions = []
-        for agent_name, agent in self.agents.items():
-            description = f"- {agent_name}: {agent.description}"
-            if hasattr(agent, 'capabilities'):
-                description += f"\n  Capabilities: {', '.join(agent.capabilities)}"
-            descriptions.append(description)
-        return "\n\n".join(descriptions)
 
     def _check_ansi_support(self) -> bool:
         """Check if terminal supports ANSI escape sequences."""
@@ -502,14 +457,8 @@ Selection criteria are automatically derived from each agent's description and c
         4. Repeat until todo list is empty
         """
 
-        # Handle case where completed list might be empty (initial execution)
-        if self.disable_llm:
-            # When LLM is disabled, use coding_agent directly (it has all the tools)
-            agent_name = 'coding_agent'
-        else:
-            initial_message = plan.completed[0].parameters.get("message", "") if plan.completed else ""
-            agent_name = await self.select_agent(initial_message)
-        agent = self.agents[agent_name]
+        # Use the coding agent directly
+        agent = self.agent
 
         iteration = 0
 
@@ -521,7 +470,7 @@ Selection criteria are automatically derived from each agent's description and c
 
         while plan.todo:
             self._save_plan_to_trace_dir(plan, iteration)
-            plan = await self._execute_next_step(plan, agent_name, iteration)
+            plan = await self._execute_next_step(plan, iteration)
             iteration += 1
 
         # Print final completion status
@@ -540,7 +489,6 @@ Selection criteria are automatically derived from each agent's description and c
         from clay.orchestrator.plan import Step
 
         session = PromptSession("❯ ")
-        agent_name = None
         iteration = 0
         user_input_queue = asyncio.Queue()
         should_exit = False
@@ -567,11 +515,6 @@ Selection criteria are automatically derived from each agent's description and c
                     if len(plan.todo) == 0:
                         print("What would you like to do next?")
                         user_input = await user_input_queue.get()
-                        if self.disable_llm:
-                            # When LLM is disabled, use coding_agent directly (it has all the tools)
-                            agent_name = 'coding_agent'
-                        else:
-                            agent_name = await self.select_agent(user_input)
                     else:
                         try:
                             user_input = user_input_queue.get_nowait()
@@ -608,11 +551,11 @@ Selection criteria are automatically derived from each agent's description and c
                             plan.completed.append(user_message_step)
 
                     # Execute plan steps if there are any
-                    plan = await self._execute_next_step(
-                        plan,
-                        agent_name,
-                        iteration
-                    )
+                    if plan.todo:
+                        plan = await self._execute_next_step(
+                            plan,
+                            iteration
+                        )
                     iteration += 1
 
             finally:
@@ -625,22 +568,20 @@ Selection criteria are automatically derived from each agent's description and c
                     pass
 
     async def _execute_next_step(
-        self, plan: Plan, agent_name: str, iteration: int,
+        self, plan: Plan, iteration: int,
     ) -> Plan:
         """Execute the next step in the plan and return updated plan.
 
         Args:
             plan: Current plan with todo and completed steps
-            agent_name: Name of the agent to use for execution
             iteration: Current iteration number for tracing
 
         Returns:
             Updated plan after executing one step
         """
 
-        # Have agent review the plan and update todo list if needed (unless LLM is disabled)
-        # Review if there are remaining todos OR if there are any failures to address
-        agent = self.agents[agent_name]
+        # Have agent review the plan and update todo list if needed
+        agent = self.agent
         plan = await agent.review_plan(plan)
 
         # Save plan at each iteration
@@ -657,7 +598,7 @@ Selection criteria are automatically derived from each agent's description and c
 
         # Get tool from agent's tool registry
         if not hasattr(agent, 'tools') or tool_name not in agent.tools:
-            error_msg = f"Tool {tool_name} not found in {agent_name}"
+            error_msg = f"Tool {tool_name} not found in agent"
             tool_not_found_msg = f"\n❌ Tool execution failed: {error_msg}"
             self.console.display(tool_not_found_msg, track_lines=False)
             plan.complete_next_step(error=error_msg)
