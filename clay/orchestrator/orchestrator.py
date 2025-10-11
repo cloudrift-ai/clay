@@ -496,15 +496,26 @@ Selection criteria are automatically derived from each agent's description and c
             plan: Plan to execute. Create using create_plan_from_goal() if starting from a goal.
 
         The process:
-        1. Execute next step from todo list
-        2. Agent reviews plan with completed step and updates todo list (unless disabled)
-        3. Repeat until todo list is empty
+        1. Agent reviews plan and creates initial todo list
+        2. Execute next step from todo list
+        3. Agent reviews plan with completed step and updates todo list (unless disabled)
+        4. Repeat until todo list is empty
         """
 
+        agent_name = await self.select_agent(plan.completed[0].parameters.get("message", ""))
+        agent = self.agents[agent_name]
+
         iteration = 0
+
+        # Initial review to populate todo list if empty
+        if not plan.todo:
+            plan = await agent.review_plan(plan)
+            self._save_plan_to_trace_dir(plan, iteration)
+            iteration += 1
+
         while plan.todo:
             self._save_plan_to_trace_dir(plan, iteration)
-            plan = await self._execute_next_step(plan, 'coding_agent', iteration)
+            plan = await self._execute_next_step(plan, agent_name, iteration)
             iteration += 1
 
         # Print final completion status
@@ -523,6 +534,7 @@ Selection criteria are automatically derived from each agent's description and c
         from clay.orchestrator.plan import Step
 
         session = PromptSession("❯ ")
+        agent_name = None
         iteration = 0
         user_input_queue = asyncio.Queue()
         should_exit = False
@@ -549,6 +561,7 @@ Selection criteria are automatically derived from each agent's description and c
                     if len(plan.todo) == 0:
                         print("What would you like to do next?")
                         user_input = await user_input_queue.get()
+                        agent_name = await self.select_agent(user_input)
                     else:
                         try:
                             user_input = user_input_queue.get_nowait()
@@ -587,7 +600,7 @@ Selection criteria are automatically derived from each agent's description and c
                     # Execute plan steps if there are any
                     plan = await self._execute_next_step(
                         plan,
-                        'coding_agent',
+                        agent_name,
                         iteration
                     )
                     iteration += 1
