@@ -253,22 +253,20 @@ class ClayOrchestrator:
 
 
     def _save_plan_to_trace_dir(self, plan: Plan, iteration: int) -> Path:
-        """Save the plan to the traces directory for debugging."""
+        """Save the plan to the traces directory for debugging in the same format sent to the model."""
         # Always use _trace directory
         trace_dir = self.traces_dir
         trace_dir.mkdir(parents=True, exist_ok=True)
 
-        # Use simple filename that overwrites previous iterations
-        filename = f"plan_iter_{iteration:03d}.json"
+        # Save in the exact format the model sees
+        filename = f"plan_iter_{iteration:03d}.txt"
         filepath = trace_dir / filename
 
-        # Create plan data with optimized structure for KV-cache
-        # Goal is now embedded in UserMessageTool, no need for separate goal field
-        plan_data = plan.to_dict()
+        # Use the exact same context and instructions as sent to the model
+        model_context = self.agent._format_plan_context_for_model(plan)
 
-        # Save to file (overwrites existing)
         with open(filepath, 'w') as f:
-            json.dump(plan_data, f, indent=2)
+            f.write(model_context)
 
         return filepath
 

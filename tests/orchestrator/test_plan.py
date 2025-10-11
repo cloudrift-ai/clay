@@ -139,24 +139,24 @@ class TestPlanSerialization:
             # Save plan using orchestrator method
             filepath = orchestrator._save_plan_to_trace_dir(plan, 0)
 
-            # Read and verify the saved plan structure
+            # Read and verify the saved plan format (now in plain text format for debugging)
             with open(filepath, 'r') as f:
-                saved_data = json.load(f)
+                saved_content = f.read()
 
-            # Verify optimized structure (goal is now embedded in UserMessageTool)
-            assert "completed" in saved_data
-            assert "todo" in saved_data
-            assert "goal" not in saved_data  # Removed for KV-cache optimization - now in UserMessageTool
-            assert "iteration" not in saved_data  # Removed for KV-cache optimization
-            assert "timestamp" not in saved_data  # Removed for KV-cache optimization
+            # Verify the new format contains the expected sections
+            assert "COMPLETED STEPS:" in saved_content
+            assert "CURRENT TODO LIST (JSON):" in saved_content
+            assert "CRITICAL: Review the current plan" in saved_content
+            assert step1.description in saved_content  # Verify todo steps are included
 
-            # Verify plan structure has completed before todo
-            keys = list(saved_data.keys())
-            assert keys.index("completed") < keys.index("todo")
+            # Verify that completed steps appear before todo list in the format
+            completed_pos = saved_content.find("COMPLETED STEPS:")
+            todo_pos = saved_content.find("CURRENT TODO LIST (JSON):")
+            assert completed_pos < todo_pos, "Completed steps should appear before todo list"
 
             print(f"✅ Orchestrator serialization structure verified")
-            print(f"  Plan keys order: {keys}")
-            print(f"  Structure: Plan data directly serialized (no separate goal field)")
+            print(f"  Format: Plain text with completed steps before todo list")
+            print(f"  Structure: Model-readable format for debugging")
 
     def test_prefix_optimization_with_realistic_scenario(self):
         """Test prefix optimization with a realistic multi-step coding scenario."""

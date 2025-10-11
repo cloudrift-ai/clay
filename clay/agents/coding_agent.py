@@ -82,48 +82,7 @@ This is a new task. Create an initial plan with the necessary steps.
 The user's intent is captured in the UserMessageTool in the completed steps."""
         else:
             # Ongoing review - review current state and update todos
-            # Format completed steps as plain text for better readability
-            completed_context = self._format_completed_steps_as_text(plan.completed)
-            todo_json = json.dumps([step.to_dict() for step in plan.todo], indent=2) if plan.todo else "[]"
-
-            user_message = f"""COMPLETED STEPS:
-{completed_context}
-
-CURRENT TODO LIST (JSON):
-{todo_json}
-
-CRITICAL: Review the current plan and update the todo list.
-The user's original request is captured in the UserMessageTool.
-
-FAILURE HANDLING:
-- ALWAYS check the "status" field of completed steps
-- If ANY completed step has "status": "FAILURE", you MUST:
-  1. Analyze the error_message to understand what went wrong
-  2. Add corrective steps to fix the issue before proceeding
-  3. DO NOT ignore failures - they must be addressed
-- Common failure scenarios:
-  * Syntax errors: Fix the code and retry
-  * Missing files: Create the missing dependencies first
-  * Command timeouts: Use non-interactive commands or adjust approach
-  * Test failures: Debug and fix the failing tests
-
-GENERAL RULES:
-- Keep all remaining planned steps that haven't been completed yet
-- Only add new steps if errors occurred or requirements changed
-- If task is complete AND no failures exist, return empty todo list
-- DO NOT remove planned steps just because some other steps completed
-- Preserve the original step sequence and don't skip planned file creation steps
-
-COMPLETION CRITERIA:
-- Return EMPTY todo list if ALL of the following are true:
-  1. No steps have "status": "FAILURE"
-  2. Core functionality is implemented (main files created)
-  3. Tests pass (if tests were part of the plan)
-  4. Basic requirements are met
-- DO NOT add cosmetic improvements, optional features, or code quality checks unless explicitly requested
-- Focus on FUNCTIONAL completion, not perfection
-
-Provide the updated todo list based on completed vs remaining work."""
+            user_message = self._format_plan_context_for_model(plan)
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -195,6 +154,57 @@ Provide the updated todo list based on completed vs remaining work."""
             formatted_steps.append("")  # Add blank line between steps
 
         return '\n'.join(formatted_steps)
+
+    def _format_plan_context(self, plan) -> str:
+        """Format plan context for model consumption and debugging."""
+        # Format completed steps as plain text for better readability
+        completed_context = self._format_completed_steps_as_text(plan.completed)
+        todo_json = json.dumps([step.to_dict() for step in plan.todo], indent=2) if plan.todo else "[]"
+
+        return f"""COMPLETED STEPS:
+{completed_context}
+
+CURRENT TODO LIST (JSON):
+{todo_json}"""
+
+    def _format_plan_context_for_model(self, plan) -> str:
+        """Format complete plan context with instructions for model."""
+        context = self._format_plan_context(plan)
+        context += """
+
+CRITICAL: Review the current plan and update the todo list.
+The user's original request is captured in the UserMessageTool.
+
+FAILURE HANDLING:
+- ALWAYS check the "status" field of completed steps
+- If ANY completed step has "status": "FAILURE", you MUST:
+  1. Analyze the error_message to understand what went wrong
+  2. Add corrective steps to fix the issue before proceeding
+  3. DO NOT ignore failures - they must be addressed
+- Common failure scenarios:
+  * Syntax errors: Fix the code and retry
+  * Missing files: Create the missing dependencies first
+  * Command timeouts: Use non-interactive commands or adjust approach
+  * Test failures: Debug and fix the failing tests
+
+GENERAL RULES:
+- Keep all remaining planned steps that haven't been completed yet
+- Only add new steps if errors occurred or requirements changed
+- If task is complete AND no failures exist, return empty todo list
+- DO NOT remove planned steps just because some other steps completed
+- Preserve the original step sequence and don't skip planned file creation steps
+
+COMPLETION CRITERIA:
+- Return EMPTY todo list if ALL of the following are true:
+  1. No steps have "status": "FAILURE"
+  2. Core functionality is implemented (main files created)
+  3. Tests pass (if tests were part of the plan)
+  4. Basic requirements are met
+- DO NOT add cosmetic improvements, optional features, or code quality checks unless explicitly requested
+- Focus on FUNCTIONAL completion, not perfection
+
+Provide the updated todo list based on completed vs remaining work."""
+        return context
 
     def _build_system_prompt(self) -> str:
         """Build the system prompt for the agent."""
