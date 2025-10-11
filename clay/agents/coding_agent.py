@@ -7,6 +7,7 @@ from ..llm import completion
 from ..orchestrator import Plan
 from ..tools import BashTool, AgentMessageTool, UserMessageTool, ReadTool, WriteTool, UpdateTool
 from ..trace import trace_operation
+import json
 
 
 class CodingAgent(Agent):
@@ -81,8 +82,15 @@ This is a new task. Create an initial plan with the necessary steps.
 The user's intent is captured in the UserMessageTool in the completed steps."""
         else:
             # Ongoing review - review current state and update todos
-            user_message = f"""Current plan state:
-{plan.to_json()}
+            # Format completed steps as plain text for better readability
+            completed_context = self._format_completed_steps_as_text(plan.completed)
+            todo_json = json.dumps([step.to_dict() for step in plan.todo], indent=2) if plan.todo else "[]"
+
+            user_message = f"""COMPLETED STEPS:
+{completed_context}
+
+CURRENT TODO LIST (JSON):
+{todo_json}
 
 CRITICAL: Review the current plan and update the todo list.
 The user's original request is captured in the UserMessageTool.
@@ -139,6 +147,54 @@ Provide the updated todo list based on completed vs remaining work."""
 
         return plan
 
+    def _format_completed_steps_as_text(self, completed_steps) -> str:
+        """Format completed steps as plain text for better model comprehension."""
+        if not completed_steps:
+            return "No completed steps yet."
+
+        formatted_steps = []
+        for i, step in enumerate(completed_steps, 1):
+            status_icon = "✓" if step.status == "SUCCESS" else "✗" if step.status == "FAILURE" else "○"
+
+            # Format the step header
+            formatted_steps.append(f"{i}. {status_icon} {step.tool_name}: {step.description or 'No description'}")
+
+            # Add parameters if they exist and are simple
+            if step.parameters:
+                for key, value in step.parameters.items():
+                    if key == "message":
+                        formatted_steps.append(f"   Message: {value}")
+                    elif key == "file_path":
+                        formatted_steps.append(f"   File: {value}")
+                    elif key == "command":
+                        formatted_steps.append(f"   Command: {value}")
+
+            # Add result output if it's a read operation with file content
+            if step.tool_name == "read" and step.result and step.result.get("output"):
+                output = step.result["output"]
+                # Show file content in a clean format
+                formatted_steps.append(f"   File Content:")
+                formatted_steps.append(f"   ──────────────")
+                # Remove line number arrows for cleaner display
+                clean_lines = []
+                for line in output.split('\n'):
+                    if '→' in line:
+                        # Extract content after the arrow
+                        parts = line.split('→', 1)
+                        if len(parts) > 1:
+                            clean_lines.append(parts[1])
+                    else:
+                        clean_lines.append(line)
+                formatted_steps.append('\n'.join(clean_lines))
+                formatted_steps.append(f"   ──────────────")
+
+            # Add error message if step failed
+            if step.status == "FAILURE" and step.error_message:
+                formatted_steps.append(f"   ERROR: {step.error_message}")
+
+            formatted_steps.append("")  # Add blank line between steps
+
+        return '\n'.join(formatted_steps)
 
     def _build_system_prompt(self) -> str:
         """Build the system prompt for the agent."""
@@ -225,9 +281,9 @@ For new tasks, create an initial plan following these engineering principles.
 For ongoing tasks, review completed steps and update the todo list ensuring quality standards.
 
 You will receive:
-1. A plan with completed steps (including UserMessageTool with the user's request)
-2. The current todo list (if any)
-3. Results from any executed steps
+1. COMPLETED STEPS: Plain text format showing what has been done, including file contents
+2. CURRENT TODO LIST: JSON format showing remaining planned steps
+3. The user's original request is in the UserMessageTool step
 
 Your job is to:
 1. Extract user intent from UserMessageTool in the completed steps
@@ -237,6 +293,19 @@ Your job is to:
 5. Include testing and quality assurance steps
 6. Consider security and performance implications
 7. If the task is complete, provide comprehensive final output
+
+IMPORTANT: You must respond with ONLY a JSON todo list in this format:
+```json
+{{
+  "todo": [
+    {{
+      "tool_name": "read",
+      "parameters": {{"file_path": "path/to/file"}},
+      "description": "Description of what this step does"
+    }}
+  ]
+}}
+```
 
 Available tools:
 {tools_desc}
