@@ -10,8 +10,8 @@ from clay.orchestrator import ClayOrchestrator, Plan
 from clay.trace import clear_trace, set_session_id
 
 
-async def main():
-    """Main CLI entry point."""
+async def async_main():
+    """Async main CLI entry point."""
     parser = argparse.ArgumentParser(
         description="Clay - An agentic coding system",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -51,10 +51,10 @@ Examples:
     else:
         await orchestrator.process_task(plan)
 
-
-def start():
-    asyncio.run(main())
+def main():
+    """Synchronous main entry point for CLI."""
+    asyncio.run(async_main())
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
