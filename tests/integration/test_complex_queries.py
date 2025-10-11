@@ -7,7 +7,6 @@ from pathlib import Path
 
 from clay.orchestrator import ClayOrchestrator
 from clay.trace import set_session_id, save_trace_file
-from test_helpers import assert_response_quality
 
 
 @pytest.mark.asyncio

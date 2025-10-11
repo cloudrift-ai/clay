@@ -551,11 +551,10 @@ class ClayOrchestrator:
                             plan.completed.append(user_message_step)
 
                     # Execute plan steps if there are any
-                    if plan.todo:
-                        plan = await self._execute_next_step(
-                            plan,
-                            iteration
-                        )
+                    plan = await self._execute_next_step(
+                        plan,
+                        iteration
+                    )
                     iteration += 1
 
             finally:
